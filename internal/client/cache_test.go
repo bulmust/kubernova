@@ -264,7 +264,7 @@ func TestCachePrometheusRoundTripAndCarry(t *testing.T) {
 
 	next := []model.Container{{Namespace: "default", Owners: "Deployment", OwnerName: "api", Pod: "api-1", Name: "api"}}
 	carried := CarryPrometheus(rows, next)
-	if carried[0].Prometheus == nil || carried[0].Prometheus.FetchedAt != time.Unix(100, 0) {
+	if carried[0].Prometheus == nil || !carried[0].Prometheus.FetchedAt.Equal(time.Unix(100, 0)) {
 		t.Errorf("Prometheus data was not carried: %#v", carried[0].Prometheus)
 	}
 	if gone := CarryPrometheus(rows, []model.Container{{Namespace: "default", Owners: "Deployment", OwnerName: "api", Pod: "gone", Name: "api"}}); gone[0].Prometheus != nil {
