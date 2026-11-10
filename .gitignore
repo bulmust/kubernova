@@ -1,0 +1,21 @@
+# Binaries
+/kubernova
+*.exe
+*.dll
+*.so
+*.dylib
+*~
+
+# Test binaries and coverage output
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment files
+.env
