@@ -1,0 +1,13 @@
+# Default table view. Per-cluster state.yaml values override these defaults and
+# are the only mutable view settings.
+view:
+  # Stable column identifier used for sorting; empty keeps server order.
+  # K02 is NAMESPACE. Rows that compare equal are ordered by namespace and then
+  # pod, so the default view reads namespace, then pod.
+  sort_column: K02
+
+  # Sort direction for sort_column.
+  sort_descending: false
+
+  # Show only column titles and the table, with no header or frames.
+  fullscreen: false

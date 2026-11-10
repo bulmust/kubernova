@@ -1,0 +1,131 @@
+# Prometheus connection and query settings.
+#
+# URL, TLS verification, tenant header, authentication environment-variable
+# names, and label filters are cluster-specific. They live in the
+# per-context state.yaml and are edited from the in-app Prometheus settings
+# form. Do not put credentials in a URL or resolved secret values in state.
+prometheus:
+  # Enable automatic Prometheus-backed resource analysis and P columns.
+  enabled: true
+
+  # Timeout for the readiness probe.
+  connection_timeout: 10s
+
+  # Timeout for instant query requests, separate from the probe.
+  request_timeout: 30s
+
+  # Analysis lookback used by range expressions inside instant queries.
+  query_range: 24h
+
+  # Default rate window for CPU and memory analysis. Resource-specific
+  # rate_window values below override this default.
+  rate_window: 5m
+
+  # Bound concurrent instant queries.
+  max_concurrent_queries: 2
+
+# Resource analysis settings. Percentile 0 disables calculation and suggestion.
+# Suggestion buffers are percentages; 0 means no increase.
+# Suggestions are computed as percentile * (1 + buffer/100), then raised to the
+# configured suggestion_minimum when needed.
+resources:
+  cpu:
+    enabled: true
+
+    # Empty uses prometheus.query_range.
+    range: ""
+
+    percentiles:
+      request: 90
+      limit: 0
+
+    suggestion_buffer_percentage:
+      request: 10
+      limit: 0
+
+    # Minimum suggestion values. Suggestions never go below these quantities.
+    # CPU values use Kubernetes CPU quantities, for example 10m or 250m.
+    suggestion_minimum:
+      request: 10m
+      limit: 10m
+
+    # Optional CPU rate-window override. Unset uses prometheus.rate_window.
+    # rate_window: 5m
+
+    # "auto" derives the query step; or set an explicit duration.
+    query_step: auto
+
+  memory:
+    enabled: true
+
+    # Empty uses prometheus.query_range.
+    range: ""
+
+    oomkilled_check: true
+
+    percentiles:
+      request: 90
+      limit: 99
+
+    suggestion_buffer_percentage:
+      request: 0
+      limit: 10
+
+    # Minimum suggestion values. Suggestions never go below these quantities.
+    # Memory values use Kubernetes quantities, for example 64Mi or 1Gi.
+    suggestion_minimum:
+      request: 32Mi
+      limit: 32Mi
+
+    # Optional memory rate-window override. Unset uses prometheus.rate_window.
+    # rate_window: 5m
+
+# PromQL queries introduced by the Prometheus phases.
+#
+# CPU percentiles (enabled CPU groups only):
+#   quantile_over_time(<percentile/100>,
+#     sum by (namespace, pod, container) (
+#       rate(container_cpu_usage_seconds_total{
+#         image!="", container!="", container!="POD",
+#         namespace=~"<namespaces>", <label_filters>
+#       }[<rate_window>])
+#     )[<query_range>:<query_step>]
+#   )
+#   Purpose: per-container CPU usage percentile over the analysis range.
+#   Required exporter: cAdvisor/kubelet container metrics. Ignore series for
+#   pods absent from Kubernetes data; results are matched back by
+#   (namespace, pod, container).
+#
+# Memory percentiles (enabled memory groups only):
+#   quantile_over_time(<percentile/100>,
+#     sum by (namespace, pod, container) (
+#       container_memory_working_set_bytes{
+#         image!="", container!="", container!="POD",
+#         namespace=~"<namespaces>", <label_filters>
+#       }
+#     )[<query_range>:<query_step>]
+#   )
+#   Purpose: per-container working-set memory percentile over the analysis
+#   range. Required exporter: cAdvisor/kubelet container metrics.
+#
+# OOM-affected containers (memory.oomkilled_check enabled only):
+#   max_over_time(
+#     kube_pod_container_status_last_terminated_reason{
+#       reason="OOMKilled",
+#       container!="",
+#       container!="POD",
+#       container!="pause",
+#       namespace=~"<namespaces>"
+#     }[<query_range>]
+#   )
+#   Purpose: identify containers whose last termination reason was observed as
+#   OOMKilled during the query interval, aggregated by namespace, pod, and
+#   container. This is a gauge observation, not an exact event count; repeated
+#   scrapes of the same OOMKilled state are not multiple OOM events. It does
+#   not use image or cAdvisor-only label filters because those labels are not
+#   part of this kube-state-metrics metric. Missing or unavailable
+#   kube-state-metrics data is reported as unknown, not zero.
+#
+# All queries use one instant query per metric group, never one request per
+# pod or container. Percentile 0 disables that query item; equal request and
+# limit percentiles reuse one returned quantile. No polling is performed.

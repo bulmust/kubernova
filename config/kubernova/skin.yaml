@@ -1,0 +1,39 @@
+# Visual theme colors. All values are hexadecimal #RRGGBB colors.
+skin:
+  body:
+    # Default text foreground.
+    fgColor: "#ffffff"
+
+    # Base application background.
+    bgColor: "#000000"
+
+    # Accent color used by the logo art.
+    logoColor: "#ff00ff"
+
+  info:
+    # Foreground used for information values such as cluster metadata.
+    fgColor: "#ffffff"
+
+    # Color used for labels and section headings.
+    sectionColor: "#ffa500"
+
+  frame:
+    menu:
+      # Description text in the header menu.
+      fgColor: "#a8a8a8"
+
+      # Keyboard keys in the header menu.
+      keyColor: "#5fa8ff"
+
+      # Digit keys used for namespace shortcuts.
+      numKeyColor: "#b266ff"
+
+  status:
+    # Error status color for the logo and status messages.
+    errorColor: "#ff5555"
+
+    # Warning status color for the logo and status messages.
+    warnColor: "#ffb86c"
+
+    # Informational status color for the logo and status messages.
+    infoColor: "#61afef"

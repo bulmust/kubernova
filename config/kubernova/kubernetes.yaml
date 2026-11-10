@@ -1,0 +1,19 @@
+# Kubernetes API connection settings. Kubernetes access is required.
+kubernetes:
+  # How the kubeconfig is selected.
+  # environment: use KUBECONFIG or ~/.kube/config from the current shell.
+  # file: use kubeconfig_path below.
+  access_mode: environment
+
+  # Path to the kubeconfig used when access_mode is "file".
+  # A leading ~ is expanded to the current user's home directory.
+  kubeconfig_path: ""
+
+  # Timeout for individual Kubernetes API requests. Accepts a duration such as
+  # 6s or 1m, or a whole number of seconds (6).
+  # This also limits the initial cluster connectivity check.
+  request_timeout: 6s
+
+  # Maximum number of resources to retrieve per Kubernetes API request.
+  # Larger clusters are retrieved through paginated follow-up requests.
+  page_size: 100

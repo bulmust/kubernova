@@ -1,0 +1,25 @@
+# Configurable keyboard bindings. Identifiers are fixed; values are bindings.
+# Bindings must be unique; configuration loading rejects duplicates with an
+# actionable error. Unset values fall back to the built-in defaults.
+# Single characters are case-sensitive: "H" is Shift+h and differs from "h".
+# Multi-key bindings are written like "ctrl+p" or "space". Digits 1-9, g, G,
+# arrows, tab, enter, esc, and ctrl+c have fixed meanings and cannot be bound.
+keybindings:
+  filter: "/"
+  command: ":"
+  help: "?"
+  columns: "c"
+  options: "ctrl+p"
+  prometheus_config: "ctrl+g"
+  export: "ctrl+e"
+  refresh: "ctrl+r"
+  toggle_replicas: "ctrl+t"
+  hide_row: "space"
+  fullscreen: "f"
+  move_down: "j"
+  move_up: "k"
+  namespace_all: "0"
+  select_previous_column: "H"
+  select_next_column: "L"
+  sort_ascending: "<"
+  sort_descending: ">"
