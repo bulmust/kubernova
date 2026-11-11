@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -251,6 +252,7 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 					data.Range = promDuration(plan.Memory.Range)
 					data.Step = promDuration(plan.Memory.Step)
 				}
+				oomAffected := strings.EqualFold(strings.TrimSpace(container.OOM), "yes") || value.oom != nil
 				if value.memRequest != nil {
 					copy := *value.memRequest
 					data.MemoryRequestPercentile = &copy
@@ -261,6 +263,11 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 					copy := *value.memLimit
 					data.MemoryLimitPercentile = &copy
 					suggestion := math.Max(*value.memLimit*(1+plan.Memory.LimitBuffer/100), plan.Memory.LimitMinimum)
+					if oomAffected && plan.Memory.OOMKilledLimitMultiplier > 0 {
+						if currentLimit := memoryValue(container.MemLim); currentLimit > 0 {
+							suggestion = math.Max(suggestion, currentLimit*plan.Memory.OOMKilledLimitMultiplier)
+						}
+					}
 					data.MemoryLimitSuggestion = &suggestion
 				}
 			}

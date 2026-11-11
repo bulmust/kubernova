@@ -460,7 +460,7 @@ func TestPrometheusAndResourceDefaults(t *testing.T) {
 	memory := cfg.Resources.Memory
 	if !memory.Enabled || !memory.OOMKilledCheck || memory.Percentiles.Request != 90 ||
 		memory.Percentiles.Limit != 99 || memory.SuggestionBufferPercentage.Limit != 10 ||
-		memory.RateWindow != 5*time.Minute {
+		memory.OOMKilledLimitMultiplier != 1.25 || memory.RateWindow != 5*time.Minute {
 		t.Errorf("memory defaults = %+v", memory)
 	}
 	if memory.SuggestionMinimum.Request != "32Mi" || memory.SuggestionMinimum.Limit != "32Mi" {
@@ -480,6 +480,7 @@ func TestPrometheusValidation(t *testing.T) {
 		{"bad step", "resources:\n  cpu:\n    query_step: nope\n", "resources.cpu.query_step"},
 		{"bad cpu minimum", "resources:\n  cpu:\n    suggestion_minimum:\n      request: nope\n", "resources.cpu.suggestion_minimum.request"},
 		{"negative memory minimum", "resources:\n  memory:\n    suggestion_minimum:\n      limit: -1Mi\n", "resources.memory.suggestion_minimum.limit"},
+		{"negative OOM limit multiplier", "resources:\n  memory:\n    oomkilled_limit_multiplier: -0.5\n", "resources.memory.oomkilled_limit_multiplier"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

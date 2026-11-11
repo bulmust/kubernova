@@ -196,6 +196,7 @@ resources:
   memory:
     enabled: true
     oomkilled_check: true
+    oomkilled_limit_multiplier: 1.25
     percentiles: { request: 90, limit: 99 }
     suggestion_buffer_percentage: { request: 0, limit: 10 }
     suggestion_minimum: { request: 32Mi, limit: 32Mi }
@@ -203,8 +204,12 @@ resources:
 
 A percentile of `0` disables that calculation and suggestion. A suggestion is
 `percentile * (1 + buffer / 100)`, raised to `suggestion_minimum` when lower.
-Suggestion cells show the current value and the suggestion, for example
-`100m -> 150m`. `query_step` is `auto` or an explicit duration.
+For containers observed as OOMKilled, the memory limit suggestion is raised to
+at least `current limit * oomkilled_limit_multiplier` so it never recommends
+less headroom than the container already has. Set the multiplier to `0` to
+disable this behavior. Suggestion cells show the current value and the
+suggestion, for example `100m -> 150m`. `query_step` is `auto` or an explicit
+duration.
 
 The commented default file, [`config/kubernova/prometheus.yaml`](../config/kubernova/prometheus.yaml),
 documents every PromQL query, the exporters it needs and its limitations.

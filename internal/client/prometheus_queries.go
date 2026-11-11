@@ -22,15 +22,16 @@ type ResourceQueryPlan struct {
 
 // PercentileQuery is one grouped percentile query.
 type PercentileQuery struct {
-	Query             string
-	Range             time.Duration
-	Step              time.Duration
-	RequestPercentile float64
-	LimitPercentile   float64
-	RequestBuffer     float64
-	LimitBuffer       float64
-	RequestMinimum    float64
-	LimitMinimum      float64
+	Query                    string
+	Range                    time.Duration
+	Step                     time.Duration
+	RequestPercentile        float64
+	LimitPercentile          float64
+	RequestBuffer            float64
+	LimitBuffer              float64
+	RequestMinimum           float64
+	LimitMinimum             float64
+	OOMKilledLimitMultiplier float64
 }
 
 // OOMQuery is one grouped query for containers whose last termination reason
@@ -99,15 +100,16 @@ func BuildQueryPlanForNamespaces(prometheus config.Prometheus, resources config.
 			)
 			rangeExpression := fmt.Sprintf("(%s)[%s:%s]", expression, promDuration(rangeDuration), promDuration(step))
 			plan.Memory = &PercentileQuery{
-				Query:             percentileExpression(rangeExpression, resources.Memory.Percentiles.Request, resources.Memory.Percentiles.Limit),
-				Range:             rangeDuration,
-				Step:              step,
-				RequestPercentile: resources.Memory.Percentiles.Request,
-				LimitPercentile:   resources.Memory.Percentiles.Limit,
-				RequestBuffer:     resources.Memory.SuggestionBufferPercentage.Request,
-				LimitBuffer:       resources.Memory.SuggestionBufferPercentage.Limit,
-				RequestMinimum:    memoryMinimum(resources.Memory.SuggestionMinimum.Request),
-				LimitMinimum:      memoryMinimum(resources.Memory.SuggestionMinimum.Limit),
+				Query:                    percentileExpression(rangeExpression, resources.Memory.Percentiles.Request, resources.Memory.Percentiles.Limit),
+				Range:                    rangeDuration,
+				Step:                     step,
+				RequestPercentile:        resources.Memory.Percentiles.Request,
+				LimitPercentile:          resources.Memory.Percentiles.Limit,
+				RequestBuffer:            resources.Memory.SuggestionBufferPercentage.Request,
+				LimitBuffer:              resources.Memory.SuggestionBufferPercentage.Limit,
+				RequestMinimum:           memoryMinimum(resources.Memory.SuggestionMinimum.Request),
+				LimitMinimum:             memoryMinimum(resources.Memory.SuggestionMinimum.Limit),
+				OOMKilledLimitMultiplier: resources.Memory.OOMKilledLimitMultiplier,
 			}
 		}
 		if resources.Memory.OOMKilledCheck {
@@ -279,12 +281,16 @@ func cpuMinimum(value string) float64 {
 	return quantity.AsApproximateFloat64()
 }
 
-func memoryMinimum(value string) float64 {
+func memoryValue(value string) float64 {
 	quantity, err := resource.ParseQuantity(strings.TrimSpace(value))
 	if err != nil {
 		return 0
 	}
 	return float64(quantity.Value())
+}
+
+func memoryMinimum(value string) float64 {
+	return memoryValue(value)
 }
 
 func regexpQuote(value string) string {

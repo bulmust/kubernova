@@ -47,6 +47,7 @@ func PrometheusFingerprint(prometheus config.Prometheus, resources config.Resour
 		"mem_range=" + time.Duration(resources.Memory.Range).String(),
 		"mem_rate=" + resources.Memory.RateWindow.String(),
 		"mem_oom=" + strconv.FormatBool(resources.Memory.OOMKilledCheck),
+		"mem_oom_mult=" + floatString(resources.Memory.OOMKilledLimitMultiplier),
 		"mem_req=" + floatString(resources.Memory.Percentiles.Request),
 		"mem_lim=" + floatString(resources.Memory.Percentiles.Limit),
 		"mem_buf_req=" + floatString(resources.Memory.SuggestionBufferPercentage.Request),

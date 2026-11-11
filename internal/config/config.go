@@ -87,6 +87,7 @@ type ResourceMemory struct {
 	Enabled                    bool                `yaml:"enabled"`
 	Range                      Duration            `yaml:"range"`
 	OOMKilledCheck             bool                `yaml:"oomkilled_check"`
+	OOMKilledLimitMultiplier   float64             `yaml:"oomkilled_limit_multiplier"`
 	Percentiles                ResourcePercentiles `yaml:"percentiles"`
 	SuggestionBufferPercentage Percentages         `yaml:"suggestion_buffer_percentage"`
 	SuggestionMinimum          ResourceMinimum     `yaml:"suggestion_minimum"`
@@ -264,6 +265,7 @@ func DefaultResources() Resources {
 		Memory: ResourceMemory{
 			Enabled:                    true,
 			OOMKilledCheck:             true,
+			OOMKilledLimitMultiplier:   1.25,
 			Percentiles:                ResourcePercentiles{Request: 90, Limit: 99},
 			SuggestionBufferPercentage: Percentages{Limit: 10},
 			SuggestionMinimum:          ResourceMinimum{Request: "32Mi", Limit: "32Mi"},
@@ -636,6 +638,9 @@ func (c Config) Validate() error {
 	}
 	if err := validateResourceGroup("resources.memory", c.Resources.Memory.Enabled, c.Resources.Memory.Range, c.Resources.Memory.Percentiles, c.Resources.Memory.SuggestionBufferPercentage, c.Resources.Memory.SuggestionMinimum); err != nil {
 		return err
+	}
+	if c.Resources.Memory.OOMKilledLimitMultiplier < 0 {
+		return errors.New("resources.memory.oomkilled_limit_multiplier must not be negative")
 	}
 	if c.Resources.CPU.RateWindow <= 0 {
 		return errors.New("resources.cpu.rate_window must be a positive duration")
@@ -1196,6 +1201,7 @@ func applyConfig(values map[string]any, cfg Config) {
 	memory["enabled"] = cfg.Resources.Memory.Enabled
 	memory["range"] = cfg.Resources.Memory.Range
 	memory["oomkilled_check"] = cfg.Resources.Memory.OOMKilledCheck
+	memory["oomkilled_limit_multiplier"] = cfg.Resources.Memory.OOMKilledLimitMultiplier
 	memoryPercentiles := childMap(memory, "percentiles")
 	memoryPercentiles["request"] = cfg.Resources.Memory.Percentiles.Request
 	memoryPercentiles["limit"] = cfg.Resources.Memory.Percentiles.Limit

@@ -174,6 +174,47 @@ func TestSuggestionMinimumClampsGeneratedValues(t *testing.T) {
 	}
 }
 
+func TestOOMKilledMemoryLimitMultiplier(t *testing.T) {
+	containers := []model.Container{
+		{Namespace: "default", Pod: "api-1", Name: "api", Owners: "Deployment", OwnerName: "api", MemLim: "100Mi", OOM: "yes"},
+		{Namespace: "default", Pod: "worker-1", Name: "worker", Owners: "Deployment", OwnerName: "worker", MemLim: "100Mi", OOM: "no"},
+		{Namespace: "default", Pod: "oomsrv-1", Name: "oomsrv", Owners: "Deployment", OwnerName: "oomsrv", MemLim: "80Mi"},
+		{Namespace: "default", Pod: "high-1", Name: "high", Owners: "Deployment", OwnerName: "high", MemLim: "10Mi", OOM: "yes"},
+	}
+	resources := testResources()
+	resources.Memory.Percentiles = config.ResourcePercentiles{Request: 0, Limit: 99}
+	resources.Memory.SuggestionBufferPercentage = config.Percentages{}
+	resources.Memory.SuggestionMinimum = config.ResourceMinimum{}
+	resources.Memory.OOMKilledLimitMultiplier = 1.5
+	plan := BuildQueryPlan(testPromConfig(), resources, containers)
+
+	limit := 50 * 1024 * 1024
+	results := QueryResults{
+		Memory: PrometheusResult{Result: []PrometheusSample{
+			{Metric: map[string]string{"namespace": "default", "pod": "api-1", "container": "api"}, Value: float64(limit)},
+			{Metric: map[string]string{"namespace": "default", "pod": "worker-1", "container": "worker"}, Value: float64(limit)},
+			{Metric: map[string]string{"namespace": "default", "pod": "oomsrv-1", "container": "oomsrv"}, Value: float64(limit)},
+			{Metric: map[string]string{"namespace": "default", "pod": "high-1", "container": "high"}, Value: float64(100 * 1024 * 1024)},
+		}},
+		OOM: PrometheusResult{Result: []PrometheusSample{
+			{Metric: map[string]string{"namespace": "default", "pod": "oomsrv-1", "container": "oomsrv"}, Value: 1},
+		}},
+	}
+	updated := ApplyPrometheusResults(containers, plan, results, time.Unix(100, 0))
+	want := []float64{
+		150 * 1024 * 1024, // Kubernetes OOM status raises the current 100Mi limit by 1.5.
+		50 * 1024 * 1024,  // Not OOMKilled: percentile suggestion unchanged.
+		120 * 1024 * 1024, // Prometheus OOM observation raises the current 80Mi limit by 1.5.
+		100 * 1024 * 1024, // A higher percentile suggestion wins over current limit * 1.5.
+	}
+	for index, expected := range want {
+		got := updated[index].Prometheus.MemoryLimitSuggestion
+		if got == nil || math.Abs(*got-expected) > 1e-6 {
+			t.Errorf("container %d memory limit suggestion = %v, want %v", index, got, expected)
+		}
+	}
+}
+
 func TestApplyPrometheusResults(t *testing.T) {
 	containers := testPromContainers()
 	resources := testResources()

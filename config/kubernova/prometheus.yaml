@@ -63,6 +63,11 @@ resources:
 
     oomkilled_check: true
 
+    # OOMKilled containers get a memory limit suggestion of at least
+    # current_limit * oomkilled_limit_multiplier. The percentile-based
+    # suggestion is still used when it is higher. Set to 0 to disable.
+    oomkilled_limit_multiplier: 1.25
+
     percentiles:
       request: 90
       limit: 99
