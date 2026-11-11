@@ -20,6 +20,16 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: Build
         run: go build ./...
+      - name: Build linux/amd64 binary
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w" -o dist/kubernova-linux-amd64 .
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubernova-linux-amd64
+          path: dist/kubernova-linux-amd64
       - name: Vet
         run: go vet ./...
       - name: Test
