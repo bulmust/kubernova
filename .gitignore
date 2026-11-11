@@ -19,3 +19,6 @@ go.work.sum
 
 # Environment files
 .env
+
+# Output
+out/
