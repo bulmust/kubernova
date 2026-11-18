@@ -211,6 +211,11 @@ disable this behavior. Suggestion cells show the current value and the
 suggestion, for example `100m -> 150m`. `query_step` is `auto` or an explicit
 duration.
 
+Usage columns (`P01`, `P03`, `P05`, `P07`) show the percentile of that pod and
+container. Suggestions keep the owner-level algorithm: the highest sample
+across the workload's pods is used for every replica and container of the same
+name, so all replicas receive the same recommendation.
+
 The commented default file, [`config/kubernova/prometheus.yaml`](../config/kubernova/prometheus.yaml),
 documents every PromQL query, the exporters it needs and its limitations.
 

@@ -242,23 +242,38 @@ func TestApplyPrometheusResults(t *testing.T) {
 	if updated[0].Prometheus == nil || updated[1].Prometheus == nil {
 		t.Fatal("matching Kubernetes rows were not updated")
 	}
-	if got := *updated[0].Prometheus.CPURequestPercentile; got != 2 {
-		t.Errorf("CPU request max = %v, want 2", got)
+	if got := *updated[0].Prometheus.CPURequestPercentile; got != 1 {
+		t.Errorf("CPU request usage = %v, want 1 (own pod, not the owner max)", got)
+	}
+	if got := *updated[1].Prometheus.CPURequestPercentile; got != 2 {
+		t.Errorf("second pod CPU request usage = %v, want 2", got)
 	}
 	if got := *updated[0].Prometheus.CPURequestSuggestion; got != 2.2 {
 		t.Errorf("CPU request suggestion = %v, want 2.2", got)
 	}
-	if got := *updated[0].Prometheus.CPULimitPercentile; got != 2 {
-		t.Errorf("equal CPU limit percentile = %v, want 2", got)
+	if got := *updated[0].Prometheus.CPULimitPercentile; got != 1 {
+		t.Errorf("equal CPU limit usage = %v, want 1", got)
 	}
-	if got := *updated[0].Prometheus.MemoryRequestPercentile; got != 128*1024*1024 {
-		t.Errorf("memory request max = %v", got)
+	if got := *updated[1].Prometheus.CPULimitPercentile; got != 2 {
+		t.Errorf("second pod CPU limit usage = %v, want 2", got)
+	}
+	if got := *updated[0].Prometheus.MemoryRequestPercentile; got != 64*1024*1024 {
+		t.Errorf("memory request usage = %v, want the first pod's value", got)
+	}
+	if got := *updated[1].Prometheus.MemoryRequestPercentile; got != 128*1024*1024 {
+		t.Errorf("second pod memory request usage = %v", got)
 	}
 	if got := *updated[0].Prometheus.MemoryLimitPercentile; got != 256*1024*1024 {
-		t.Errorf("memory limit max = %v", got)
+		t.Errorf("memory limit usage = %v", got)
+	}
+	if updated[1].Prometheus.MemoryLimitPercentile != nil {
+		t.Errorf("second pod memory limit usage = %v, want no series", *updated[1].Prometheus.MemoryLimitPercentile)
 	}
 	if got := *updated[0].Prometheus.MemoryLimitSuggestion; got != 256*1024*1024*1.1 {
 		t.Errorf("memory limit suggestion = %v", got)
+	}
+	if got := *updated[1].Prometheus.MemoryLimitSuggestion; got != 256*1024*1024*1.1 {
+		t.Errorf("shared memory limit suggestion = %v, want owner max", got)
 	}
 	if got := *updated[0].Prometheus.OOMKills; got != 1 {
 		t.Errorf("OOM observation = %v, want 1 (affected, not an event count)", got)
