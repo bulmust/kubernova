@@ -15,9 +15,10 @@ import (
 
 // ResourceQueryPlan is the bounded set of instant queries for one refresh.
 type ResourceQueryPlan struct {
-	CPU    *PercentileQuery
-	Memory *PercentileQuery
-	OOM    *OOMQuery
+	CPU      *PercentileQuery
+	Memory   *PercentileQuery
+	OOM      *OOMQuery
+	Severity config.ResourceSeverity
 }
 
 // PercentileQuery is one grouped percentile query.
@@ -59,6 +60,7 @@ func BuildQueryPlanForNamespaces(prometheus config.Prometheus, resources config.
 	}
 	selector := prometheusSelector(namespaces, prometheus.LabelFilters)
 	var plan ResourceQueryPlan
+	plan.Severity = resources.Severity
 
 	if resources.CPU.Enabled && (resources.CPU.Percentiles.Request > 0 || resources.CPU.Percentiles.Limit > 0) {
 		rangeValue := resources.CPU.Range

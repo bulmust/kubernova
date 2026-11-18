@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"kubernova/internal/config"
 	"kubernova/internal/model"
 )
 
@@ -322,9 +325,85 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 					data.OOMKills = &count
 				}
 			}
+			data.Severity = limitSeverity(*container, data, plan.Severity, value.oom != nil)
 		}
 	}
 	return containers
+}
+
+// limitSeverity grades the CPU and memory limit suggestions for one container.
+// OOM-affected containers are always HIGH. A HIGH suggestion must reach both
+// the relative percentage and the absolute minimum; otherwise a suggestion
+// above the medium percentage is MEDIUM.
+func limitSeverity(container model.Container, data *model.PrometheusData, severity config.ResourceSeverity, prometheusOOM bool) string {
+	level := model.SeverityOK
+	checks := []struct {
+		current    string
+		suggestion *float64
+		minimum    float64
+	}{
+		{container.CPULim, data.CPULimitSuggestion, quantityValue(severity.High.Minimum.CPU)},
+		{container.MemLim, data.MemoryLimitSuggestion, quantityValue(severity.High.Minimum.Memory)},
+	}
+	for _, check := range checks {
+		switch severityLevel(check.current, check.suggestion, severity.Medium.Percent, severity.High.Percent, check.minimum) {
+		case model.SeverityHigh:
+			return model.SeverityHigh
+		case model.SeverityMedium:
+			level = model.SeverityMedium
+		}
+	}
+	if container.OOMKilled() || prometheusOOM {
+		return model.SeverityHigh
+	}
+	return level
+}
+
+func severityLevel(current string, suggestion *float64, mediumPercent, highPercent, highMinimum float64) string {
+	if suggestion == nil {
+		return model.SeverityOK
+	}
+	currentValue, ok := quantityFloat(current)
+	if !ok {
+		currentValue = 0
+	}
+	change := math.Abs(*suggestion - currentValue)
+	if change == 0 {
+		return model.SeverityOK
+	}
+	relative := math.Inf(1)
+	if currentValue > 0 {
+		relative = change / currentValue * 100
+	}
+	if highPercent > 0 || highMinimum > 0 {
+		if relative >= highPercent && change >= highMinimum {
+			return model.SeverityHigh
+		}
+	}
+	if relative > mediumPercent {
+		return model.SeverityMedium
+	}
+	return model.SeverityOK
+}
+
+func quantityValue(value string) float64 {
+	parsed, ok := quantityFloat(value)
+	if !ok {
+		return 0
+	}
+	return parsed
+}
+
+func quantityFloat(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "-" {
+		return 0, false
+	}
+	quantity, err := resource.ParseQuantity(value)
+	if err != nil {
+		return 0, false
+	}
+	return quantity.AsApproximateFloat64(), true
 }
 
 func percentileParts(group *PercentileQuery, sample PrometheusSample) (request, limit bool) {

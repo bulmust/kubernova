@@ -110,6 +110,7 @@ in the order below. `state.yaml` stores the visible IDs under `columns`.
 | `P07` | MEM_LIM_USE | hidden until Prometheus data exists |
 | `P08` | MEM_LIM_SUG | hidden until Prometheus data exists |
 | `P09` | OOM_AFFECTED | hidden until Prometheus data exists |
+| `P10` | SEVERITY | hidden until Prometheus data exists |
 
 Hidden columns are removed completely and are not searched by the filter.
 Sorting by a hidden column still works. Exports always contain every column.
@@ -200,6 +201,11 @@ resources:
     percentiles: { request: 90, limit: 99 }
     suggestion_buffer_percentage: { request: 0, limit: 10 }
     suggestion_minimum: { request: 32Mi, limit: 32Mi }
+  severity:
+    medium: { percent: 10 }
+    high:
+      percent: 50
+      minimum: { cpu: 50m, memory: 50Mi }
 ```
 
 A percentile of `0` disables that calculation and suggestion. A suggestion is
@@ -215,6 +221,12 @@ Usage columns (`P01`, `P03`, `P05`, `P07`) show the percentile of that pod and
 container. Suggestions keep the owner-level algorithm: the highest sample
 across the workload's pods is used for every replica and container of the same
 name, so all replicas receive the same recommendation.
+
+The `P10` severity column grades CPU and memory limit suggestions. A suggestion
+is `MEDIUM` above `severity.medium.percent` and `HIGH` when it reaches both
+`severity.high.percent` and the matching `severity.high.minimum` quantity.
+Containers that Kubernetes or Prometheus observed as OOMKilled are always
+`HIGH`. Exports include the count of containers at each severity level.
 
 The commented default file, [`config/kubernova/prometheus.yaml`](../config/kubernova/prometheus.yaml),
 documents every PromQL query, the exporters it needs and its limitations.

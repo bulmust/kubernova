@@ -179,8 +179,8 @@ func TestCompletionSuffix(t *testing.T) {
 
 func TestAvailableQColumns(t *testing.T) {
 	cfg := config.Default()
-	if got := availablePrometheusColumns(cfg); len(got) != 7 {
-		t.Errorf("default available P columns = %v, want 7", got)
+	if got := availablePrometheusColumns(cfg); len(got) != 8 {
+		t.Errorf("default available P columns = %v, want 8", got)
 	}
 	cfg.Resources.CPU.Percentiles.Request = 0
 	cfg.Resources.Memory.OOMKilledCheck = false

@@ -13,7 +13,7 @@ func availablePrometheusColumns(cfg config.Config) []string {
 	if !cfg.Prometheus.Enabled {
 		return nil
 	}
-	columns := make([]string, 0, 9)
+	columns := make([]string, 0, 10)
 	cpu := cfg.Resources.CPU
 	if cpu.Enabled && cpu.Percentiles.Request > 0 {
 		columns = append(columns, "P01", "P02")
@@ -31,6 +31,7 @@ func availablePrometheusColumns(cfg config.Config) []string {
 	if memory.Enabled && memory.OOMKilledCheck {
 		columns = append(columns, "P09")
 	}
+	columns = append(columns, "P10")
 	return columns
 }
 

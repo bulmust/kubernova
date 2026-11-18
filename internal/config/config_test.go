@@ -466,6 +466,11 @@ func TestPrometheusAndResourceDefaults(t *testing.T) {
 	if memory.SuggestionMinimum.Request != "32Mi" || memory.SuggestionMinimum.Limit != "32Mi" {
 		t.Errorf("memory suggestion minimum = %+v", memory.SuggestionMinimum)
 	}
+	severity := cfg.Resources.Severity
+	if severity.Medium.Percent != 10 || severity.High.Percent != 50 ||
+		severity.High.Minimum.CPU != "50m" || severity.High.Minimum.Memory != "50Mi" {
+		t.Errorf("severity defaults = %+v", severity)
+	}
 }
 
 func TestPrometheusValidation(t *testing.T) {
@@ -481,6 +486,9 @@ func TestPrometheusValidation(t *testing.T) {
 		{"bad cpu minimum", "resources:\n  cpu:\n    suggestion_minimum:\n      request: nope\n", "resources.cpu.suggestion_minimum.request"},
 		{"negative memory minimum", "resources:\n  memory:\n    suggestion_minimum:\n      limit: -1Mi\n", "resources.memory.suggestion_minimum.limit"},
 		{"negative OOM limit multiplier", "resources:\n  memory:\n    oomkilled_limit_multiplier: -0.5\n", "resources.memory.oomkilled_limit_multiplier"},
+		{"high severity percent", "resources:\n  severity:\n    high:\n      percent: 101\n", "resources.severity.high.percent"},
+		{"inverted severity percent", "resources:\n  severity:\n    medium:\n      percent: 60\n    high:\n      percent: 50\n", "resources.severity.high.percent"},
+		{"bad severity minimum", "resources:\n  severity:\n    high:\n      minimum:\n        memory: nope\n", "resources.severity.high.minimum.memory"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

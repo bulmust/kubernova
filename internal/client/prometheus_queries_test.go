@@ -288,3 +288,50 @@ func TestApplyPrometheusResults(t *testing.T) {
 		t.Errorf("empty namespace container should be ignored")
 	}
 }
+
+func TestLimitSeverityThresholds(t *testing.T) {
+	containers := []model.Container{
+		{Namespace: "default", Pod: "high-1", Name: "app", Owners: "Deployment", OwnerName: "high", CPULim: "100m"},
+		{Namespace: "default", Pod: "medium-1", Name: "app", Owners: "Deployment", OwnerName: "medium", CPULim: "100m"},
+		{Namespace: "default", Pod: "ok-1", Name: "app", Owners: "Deployment", OwnerName: "ok", CPULim: "100m"},
+		{Namespace: "default", Pod: "oom-1", Name: "app", Owners: "Deployment", OwnerName: "oom", CPULim: "100m", OOM: "yes"},
+	}
+	resources := testResources()
+	resources.CPU.Percentiles = config.ResourcePercentiles{Limit: 90}
+	resources.CPU.SuggestionBufferPercentage = config.Percentages{}
+	resources.CPU.SuggestionMinimum = config.ResourceMinimum{}
+	resources.Memory.Enabled = false
+	plan := BuildQueryPlan(testPromConfig(), resources, containers)
+	results := QueryResults{
+		CPU: PrometheusResult{Result: []PrometheusSample{
+			{Metric: map[string]string{"namespace": "default", "pod": "high-1", "container": "app"}, Value: 0.2},
+			{Metric: map[string]string{"namespace": "default", "pod": "medium-1", "container": "app"}, Value: 0.12},
+			{Metric: map[string]string{"namespace": "default", "pod": "ok-1", "container": "app"}, Value: 0.105},
+			{Metric: map[string]string{"namespace": "default", "pod": "oom-1", "container": "app"}, Value: 0.105},
+		}},
+	}
+	updated := ApplyPrometheusResults(containers, plan, results, time.Unix(100, 0))
+	want := []string{model.SeverityHigh, model.SeverityMedium, model.SeverityOK, model.SeverityHigh}
+	for index, expected := range want {
+		if got := updated[index].Severity(); got != expected {
+			t.Errorf("container %d severity = %q, want %q", index, got, expected)
+		}
+	}
+}
+
+func TestSeverityUsesPerResourceMinimum(t *testing.T) {
+	medium := severityLevel("100m", float64Pointer(0.12), 10, 50, 0.05)
+	if medium != model.SeverityMedium {
+		t.Errorf("20%% change with 20m limit = %q, want MEDIUM", medium)
+	}
+	high := severityLevel("100m", float64Pointer(0.2), 10, 50, 0.05)
+	if high != model.SeverityHigh {
+		t.Errorf("100%% change of 100m = %q, want HIGH", high)
+	}
+	small := severityLevel("500m", float64Pointer(0.52), 10, 50, 0.05)
+	if small != model.SeverityOK {
+		t.Errorf("4%% change = %q, want OK", small)
+	}
+}
+
+func float64Pointer(value float64) *float64 { return &value }

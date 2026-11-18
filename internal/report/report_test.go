@@ -62,6 +62,9 @@ func TestBuildSummaryTotals(t *testing.T) {
 	if summary.TotalPods != 3 || summary.TotalContainers != 3 || summary.TotalWorkloads != 1 {
 		t.Errorf("counts = pods %d containers %d workloads %d", summary.TotalPods, summary.TotalContainers, summary.TotalWorkloads)
 	}
+	if summary.Severity.High != 3 || summary.Severity.Medium != 0 || summary.Severity.OK != 0 {
+		t.Errorf("severity counts = %+v, want three HIGH (OOMKilled)", summary.Severity)
+	}
 	if summary.WorkloadsNeedingAdjustment != 1 || summary.OOMAffectedWorkloadsKube != 1 || summary.OOMAffectedContainersProm == nil || *summary.OOMAffectedContainersProm != 3 {
 		t.Errorf("workload counts = %+v", summary)
 	}

@@ -69,8 +69,32 @@ type Prometheus struct {
 
 // Resources groups CPU and memory analysis settings.
 type Resources struct {
-	CPU    ResourceCPU    `yaml:"cpu"`
-	Memory ResourceMemory `yaml:"memory"`
+	CPU      ResourceCPU      `yaml:"cpu"`
+	Memory   ResourceMemory   `yaml:"memory"`
+	Severity ResourceSeverity `yaml:"severity"`
+}
+
+// ResourceSeverity configures the severity of limit suggestions. A suggestion
+// is HIGH only when both its relative and absolute differences reach the high
+// thresholds. OOMKilled containers are always HIGH.
+type ResourceSeverity struct {
+	Medium SeverityThreshold `yaml:"medium"`
+	High   SeverityHigh      `yaml:"high"`
+}
+
+type SeverityThreshold struct {
+	Percent float64 `yaml:"percent"`
+}
+
+type SeverityHigh struct {
+	Percent float64         `yaml:"percent"`
+	Minimum SeverityMinimum `yaml:"minimum"`
+}
+
+// SeverityMinimum holds the smallest absolute difference that can be HIGH.
+type SeverityMinimum struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
 }
 
 type ResourceCPU struct {
@@ -270,6 +294,13 @@ func DefaultResources() Resources {
 			SuggestionBufferPercentage: Percentages{Limit: 10},
 			SuggestionMinimum:          ResourceMinimum{Request: "32Mi", Limit: "32Mi"},
 			RateWindow:                 5 * time.Minute,
+		},
+		Severity: ResourceSeverity{
+			Medium: SeverityThreshold{Percent: 10},
+			High: SeverityHigh{
+				Percent: 50,
+				Minimum: SeverityMinimum{CPU: "50m", Memory: "50Mi"},
+			},
 		},
 	}
 }
@@ -513,6 +544,8 @@ func (c *Config) Normalize() {
 	}
 	normalizeResourceMinimum(&c.Resources.CPU.SuggestionMinimum)
 	normalizeResourceMinimum(&c.Resources.Memory.SuggestionMinimum)
+	c.Resources.Severity.High.Minimum.CPU = strings.TrimSpace(c.Resources.Severity.High.Minimum.CPU)
+	c.Resources.Severity.High.Minimum.Memory = strings.TrimSpace(c.Resources.Severity.High.Minimum.Memory)
 
 	if c.Keybindings == nil {
 		c.Keybindings = make(map[string]string)
@@ -637,6 +670,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := validateResourceGroup("resources.memory", c.Resources.Memory.Enabled, c.Resources.Memory.Range, c.Resources.Memory.Percentiles, c.Resources.Memory.SuggestionBufferPercentage, c.Resources.Memory.SuggestionMinimum); err != nil {
+		return err
+	}
+	if err := validateSeverity(c.Resources.Severity); err != nil {
 		return err
 	}
 	if c.Resources.Memory.OOMKilledLimitMultiplier < 0 {
@@ -819,6 +855,30 @@ func validateResourceGroup(path string, enabled bool, rangeValue Duration, perce
 		quantity, err := resource.ParseQuantity(strings.TrimSpace(value))
 		if err != nil || quantity.Sign() < 0 {
 			return fmt.Errorf("%s.suggestion_minimum.%s must be a non-negative Kubernetes resource quantity", path, name)
+		}
+	}
+	return nil
+}
+
+func validateSeverity(value ResourceSeverity) error {
+	for name, percent := range map[string]float64{
+		"medium": value.Medium.Percent,
+		"high":   value.High.Percent,
+	} {
+		if percent < 0 || percent > 100 {
+			return fmt.Errorf("resources.severity.%s.percent must be between 0 and 100", name)
+		}
+	}
+	if value.High.Percent < value.Medium.Percent {
+		return errors.New("resources.severity.high.percent must not be lower than resources.severity.medium.percent")
+	}
+	for name, minimum := range map[string]string{
+		"cpu":    value.High.Minimum.CPU,
+		"memory": value.High.Minimum.Memory,
+	} {
+		quantity, err := resource.ParseQuantity(strings.TrimSpace(minimum))
+		if err != nil || quantity.Sign() < 0 {
+			return fmt.Errorf("resources.severity.high.minimum.%s must be a non-negative Kubernetes resource quantity", name)
 		}
 	}
 	return nil
@@ -1212,6 +1272,15 @@ func applyConfig(values map[string]any, cfg Config) {
 	memoryMinimum["request"] = cfg.Resources.Memory.SuggestionMinimum.Request
 	memoryMinimum["limit"] = cfg.Resources.Memory.SuggestionMinimum.Limit
 	memory["rate_window"] = cfg.Resources.Memory.RateWindow
+
+	severity := childMap(resources, "severity")
+	medium := childMap(severity, "medium")
+	medium["percent"] = cfg.Resources.Severity.Medium.Percent
+	high := childMap(severity, "high")
+	high["percent"] = cfg.Resources.Severity.High.Percent
+	highMinimum := childMap(high, "minimum")
+	highMinimum["cpu"] = cfg.Resources.Severity.High.Minimum.CPU
+	highMinimum["memory"] = cfg.Resources.Severity.High.Minimum.Memory
 }
 
 func childMap(parent map[string]any, key string) map[string]any {

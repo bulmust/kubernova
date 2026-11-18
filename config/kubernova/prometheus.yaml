@@ -85,6 +85,21 @@ resources:
     # Optional memory rate-window override. Unset uses prometheus.rate_window.
     # rate_window: 5m
 
+  # Severity assigned to limit suggestions and shown in the P10 column.
+  # OOMKilled containers are always HIGH. A HIGH suggestion must reach both
+  # the relative percentage and the absolute minimum difference below.
+  severity:
+    # A limit suggestion whose difference exceeds this percentage is MEDIUM.
+    medium:
+      percent: 10
+
+    # A limit suggestion whose difference reaches both thresholds is HIGH.
+    high:
+      percent: 50
+      minimum:
+        cpu: 50m
+        memory: 50Mi
+
 # PromQL queries introduced by the Prometheus phases.
 #
 # CPU percentiles (enabled CPU groups only):

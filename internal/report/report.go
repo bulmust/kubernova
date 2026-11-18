@@ -78,6 +78,13 @@ type SuggestionTotal struct {
 	ChangesNeeded  int    `json:"changes_needed"`
 }
 
+// SeverityCounts summarizes how many containers fall into each severity level.
+type SeverityCounts struct {
+	OK     int `json:"ok"`
+	Medium int `json:"medium"`
+	High   int `json:"high"`
+}
+
 // Summary contains the report totals in display order.
 type Summary struct {
 	Cluster    string `json:"cluster"`
@@ -108,6 +115,8 @@ type Summary struct {
 	CPULimit      SuggestionTotal `json:"cpu_limit"`
 	MemoryRequest SuggestionTotal `json:"memory_request"`
 	MemoryLimit   SuggestionTotal `json:"memory_limit"`
+
+	Severity SeverityCounts `json:"severity"`
 
 	CPUAllocatableComparison    string `json:"cpu_suggested_vs_allocatable"`
 	MemoryAllocatableComparison string `json:"memory_suggested_vs_allocatable"`
@@ -170,6 +179,7 @@ func Build(cache client.Cache, cfg config.Config, metadata Metadata) Report {
 	report.Summary.TotalContainers = len(containers)
 	report.Summary.TotalWorkloads = len(cache.Workload)
 	report.Summary.LimitRangeContainers = countLimitRangeContainers(containers)
+	report.Summary.Severity = countSeverity(containers)
 	applyNodes(&report, cache.Nodes)
 
 	hasPrometheus := client.HasPrometheus(containers)
@@ -586,6 +596,21 @@ func countLimitRangeContainers(containers []model.Container) int {
 	return count
 }
 
+func countSeverity(containers []model.Container) SeverityCounts {
+	var counts SeverityCounts
+	for _, container := range containers {
+		switch container.Severity() {
+		case model.SeverityHigh:
+			counts.High++
+		case model.SeverityMedium:
+			counts.Medium++
+		default:
+			counts.OK++
+		}
+	}
+	return counts
+}
+
 func compareAllocatable(suggested, allocatable string) string {
 	if suggested == "" || suggested == "-" || allocatable == "" || allocatable == "-" || allocatable == "n/a" {
 		return "-"
@@ -622,6 +647,16 @@ func suggestionRows(cfg config.Config) []SuggestionRow {
 		resourceRow("CPU limit", cfg.Resources.CPU.Percentiles.Limit, cfg.Resources.CPU.SuggestionBufferPercentage.Limit, cfg.Resources.CPU.SuggestionMinimum.Limit, "1m"),
 		resourceRow("Memory request", cfg.Resources.Memory.Percentiles.Request, cfg.Resources.Memory.SuggestionBufferPercentage.Request, cfg.Resources.Memory.SuggestionMinimum.Request, "1Mi"),
 		resourceRow("Memory limit", cfg.Resources.Memory.Percentiles.Limit, cfg.Resources.Memory.SuggestionBufferPercentage.Limit, cfg.Resources.Memory.SuggestionMinimum.Limit, "1Mi"),
+		{
+			Resource: "Severity",
+			Formula: fmt.Sprintf(
+				"MEDIUM above %.0f%% limit change; HIGH at both %.0f%% and %s CPU / %s memory; OOMKilled is HIGH",
+				cfg.Resources.Severity.Medium.Percent,
+				cfg.Resources.Severity.High.Percent,
+				cfg.Resources.Severity.High.Minimum.CPU,
+				cfg.Resources.Severity.High.Minimum.Memory,
+			),
+		},
 		{
 			Resource: "Aggregation",
 			Formula:  "maximum pod sample per owner+container, multiplied by the cached pod count",
