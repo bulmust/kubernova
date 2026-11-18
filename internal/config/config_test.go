@@ -644,3 +644,10 @@ func TestDefaultViewSortsByNamespace(t *testing.T) {
 		t.Errorf("default sort = %q descending=%v, want K02 ascending", cfg.View.SortColumn, cfg.View.SortDescending)
 	}
 }
+
+func TestDefaultExportPadsMarkdownTables(t *testing.T) {
+	cfg := Default()
+	if !cfg.Export.MarkdownTablePadded {
+		t.Error("export.markdown_table_padded default = false, want true")
+	}
+}

@@ -1,0 +1,5 @@
+# Report export settings. Exports are written by :export and ctrl+e.
+export:
+  # Pad Markdown table cells with spaces so every column lines up in source
+  # and rendered Markdown. When false, cells use the compact | value | form.
+  markdown_table_padded: true

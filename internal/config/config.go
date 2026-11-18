@@ -36,6 +36,12 @@ type Config struct {
 	Resources   Resources         `yaml:"resources"`
 	Kubernetes  Kubernetes        `yaml:"kubernetes"`
 	Skin        Skin              `yaml:"skin"`
+	Export      Export            `yaml:"export"`
+}
+
+// Export groups export destination, format, and Markdown settings.
+type Export struct {
+	MarkdownTablePadded bool `yaml:"markdown_table_padded"`
 }
 
 // View contains default table view settings. Per-cluster state overrides these
@@ -257,9 +263,15 @@ func Default() Config {
 				RequestTimeout: Duration(6 * time.Second),
 				PageSize:       100,
 			},
+			Export: DefaultExport(),
 		}
 	}
 	return snapshot.Config
+}
+
+// DefaultExport returns the built-in export defaults.
+func DefaultExport() Export {
+	return Export{MarkdownTablePadded: true}
 }
 
 // DefaultPrometheus returns the built-in global Prometheus defaults. Per-
@@ -1021,6 +1033,7 @@ func removeKnownValues(values map[string]any) {
 		{"prometheus", "basic_password_env"},
 		{"prometheus", "label_filters"},
 		{"resources"},
+		{"export"},
 		{"kubernetes", "enabled"},
 		{"kubernetes", "access_mode"},
 		{"kubernetes", "kubeconfig_path"},
@@ -1240,6 +1253,9 @@ func applyConfig(values map[string]any, cfg Config) {
 	prometheus["query_range"] = cfg.Prometheus.QueryRange
 	prometheus["rate_window"] = cfg.Prometheus.RateWindow
 	prometheus["max_concurrent_queries"] = cfg.Prometheus.MaxConcurrent
+
+	exportConfig := childMap(values, "export")
+	exportConfig["markdown_table_padded"] = cfg.Export.MarkdownTablePadded
 
 	resources := childMap(values, "resources")
 	cpu := childMap(resources, "cpu")

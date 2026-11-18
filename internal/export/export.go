@@ -187,24 +187,38 @@ func RenderJSON(value report.Report, cache client.Cache, cached bool, generatedA
 	return append(raw, '\n'), nil
 }
 
+// MarkdownOptions controls Markdown table formatting.
+type MarkdownOptions struct {
+	// Padded aligns every cell to the widest value in its column.
+	Padded bool
+}
+
 // RenderMarkdown renders the summary and every column in the supplied sort
 // order. The caller passes all rows; filters and namespace selection are not
 // applied here.
-func RenderMarkdown(value report.Report, containers []model.Container, cached bool, _ time.Time) []byte {
+func RenderMarkdown(value report.Report, containers []model.Container, cached bool, generatedAt time.Time) []byte {
+	return RenderMarkdownWithOptions(value, containers, cached, generatedAt, MarkdownOptions{})
+}
+
+// RenderMarkdownWithOptions renders Markdown with the supplied formatting.
+func RenderMarkdownWithOptions(value report.Report, containers []model.Container, cached bool, _ time.Time, options MarkdownOptions) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Kubernova report: %s / %s\n\n", value.Summary.Cluster, value.Summary.Context)
 	if cached {
 		b.WriteString("_Source: cached table snapshot; Kubernetes API was not used._\n\n")
 	}
-	b.WriteString("## Summary\n\n| Field | Value |\n| --- | --- |\n")
+	b.WriteString("## Summary\n\n")
+	summary := make([][]string, 0)
 	for _, row := range summaryRows(value.Summary) {
-		fmt.Fprintf(&b, "| %s | %s |\n", escape(row[0]), escape(row[1]))
+		summary = append(summary, []string{row[0], row[1]})
 	}
+	writeMarkdownTable(&b, []string{"Field", "Value"}, summary, options.Padded)
 	b.WriteString("\n## Suggestion\n\n")
-	b.WriteString("| Resource | Formula |\n| --- | --- |\n")
+	suggestion := make([][]string, 0, len(value.Suggestion))
 	for _, row := range value.Suggestion {
-		fmt.Fprintf(&b, "| %s | %s |\n", escape(row.Resource), escape(row.Formula))
+		suggestion = append(suggestion, []string{row.Resource, row.Formula})
 	}
+	writeMarkdownTable(&b, []string{"Resource", "Formula"}, suggestion, options.Padded)
 	b.WriteString("\n## Queries\n\n")
 	for _, section := range value.Queries {
 		fmt.Fprintf(&b, "### %s\n\n", escape(section.Name))
@@ -224,24 +238,69 @@ func RenderMarkdown(value report.Report, containers []model.Container, cached bo
 		b.WriteString("_No containers._\n")
 		return []byte(b.String())
 	}
-	b.WriteString("|")
+	headers := make([]string, 0, len(model.Columns))
 	for _, column := range model.Columns {
-		fmt.Fprintf(&b, " %s (%s) |", escape(column.Header), column.ID)
+		headers = append(headers, fmt.Sprintf("%s (%s)", column.Header, column.ID))
 	}
-	b.WriteString("\n|")
-	for range model.Columns {
-		b.WriteString(" --- |")
-	}
-	b.WriteString("\n")
+	rows := make([][]string, 0, len(containers))
 	for _, item := range containers {
-		values := item.Row()
+		rows = append(rows, item.Row())
+	}
+	writeMarkdownTable(&b, headers, rows, options.Padded)
+	return []byte(b.String())
+}
+
+// writeMarkdownTable writes a GitHub-flavored Markdown table. Padded tables
+// align every cell to the widest value in its column; compact tables keep the
+// minimal | value | form.
+func writeMarkdownTable(b *strings.Builder, headers []string, rows [][]string, padded bool) {
+	cell := func(row []string, index int) string {
+		if index >= len(row) {
+			return ""
+		}
+		return escape(row[index])
+	}
+	widths := make([]int, len(headers))
+	if padded {
+		for index, header := range headers {
+			widths[index] = len([]rune(escape(header)))
+		}
+		for _, row := range rows {
+			for index := range headers {
+				if width := len([]rune(cell(row, index))); width > widths[index] {
+					widths[index] = width
+				}
+			}
+		}
+	}
+	writeLine := func(row []string) {
 		b.WriteString("|")
-		for index := range model.Columns {
-			fmt.Fprintf(&b, " %s |", escape(values[index]))
+		for index := range headers {
+			b.WriteString(" ")
+			text := cell(row, index)
+			b.WriteString(text)
+			if padded {
+				b.WriteString(strings.Repeat(" ", widths[index]-len([]rune(text))))
+			}
+			b.WriteString(" |")
 		}
 		b.WriteString("\n")
 	}
-	return []byte(b.String())
+	writeLine(headers)
+	b.WriteString("|")
+	for index := range headers {
+		width := 3
+		if padded && widths[index] > width {
+			width = widths[index]
+		}
+		b.WriteString(" ")
+		b.WriteString(strings.Repeat("-", width))
+		b.WriteString(" |")
+	}
+	b.WriteString("\n")
+	for _, row := range rows {
+		writeLine(row)
+	}
 }
 
 func summaryRows(summary report.Summary) [][2]string {

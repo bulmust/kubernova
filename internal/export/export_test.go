@@ -108,6 +108,34 @@ func TestRenderMarkdownGolden(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownPadded(t *testing.T) {
+	cache, value, at := fixture()
+	raw := RenderMarkdownWithOptions(value, cache.Containers(), false, at, MarkdownOptions{Padded: true})
+	text := string(raw)
+	lines := strings.Split(text, "\n")
+	var summary, rule, firstRow string
+	for index, line := range lines {
+		if line == "| Field" || strings.HasPrefix(line, "| Field ") {
+			summary = line
+			rule = lines[index+1]
+			firstRow = lines[index+2]
+			break
+		}
+	}
+	if summary == "" {
+		t.Fatalf("padded Markdown has no summary table:\n%s", text)
+	}
+	if len(rule) != len(summary) || len(firstRow) != len(summary) {
+		t.Errorf("padded rows have different widths:\n%s\n%s\n%s", summary, rule, firstRow)
+	}
+	if !strings.Contains(firstRow, "| Cluster ") {
+		t.Errorf("padded first summary row = %q", firstRow)
+	}
+	if strings.HasPrefix(rule, "| --- |") {
+		t.Errorf("padded separator was not widened: %q", rule)
+	}
+}
+
 func TestWriteAtomicCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "report.json")

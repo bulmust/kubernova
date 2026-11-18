@@ -239,3 +239,6 @@ Filters, namespace selection, hidden columns and replica collapse do not
 apply. Files are written atomically to `exports/` beside `state.yaml`, or to
 the given path. An export made from cached data is marked as cached. Exports
 never contain secrets, authentication values or URL credentials.
+
+Markdown tables are whitespace-padded so every column lines up. Set
+`export.markdown_table_padded: false` for compact `| value |` rows.

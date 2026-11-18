@@ -1853,7 +1853,9 @@ func Run() error {
 			written = append(written, path)
 		}
 		if writeMarkdown {
-			raw := export.RenderMarkdown(value, sorted, cached, now)
+			raw := export.RenderMarkdownWithOptions(value, sorted, cached, now, export.MarkdownOptions{
+				Padded: cfg.Export.MarkdownTablePadded,
+			})
 			path := filepath.Join(dir, export.FileName(clusterName, contextName, now, "md"))
 			if err := export.WriteAtomic(path, raw); err != nil {
 				setErrorMessage("export markdown: " + err.Error())
