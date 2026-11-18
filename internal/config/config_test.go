@@ -489,6 +489,9 @@ func TestPrometheusValidation(t *testing.T) {
 		{"high severity percent", "resources:\n  severity:\n    high:\n      percent: 101\n", "resources.severity.high.percent"},
 		{"inverted severity percent", "resources:\n  severity:\n    medium:\n      percent: 60\n    high:\n      percent: 50\n", "resources.severity.high.percent"},
 		{"bad severity minimum", "resources:\n  severity:\n    high:\n      minimum:\n        memory: nope\n", "resources.severity.high.minimum.memory"},
+		{"bad export type", "export:\n  type: yaml\n", "export.type"},
+		{"bad export column", "export:\n  columns: K02,NOPE\n", "export.columns"},
+		{"bad export sort column", "export:\n  sort_column: NOPE\n", "export.sort_column"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -649,5 +652,14 @@ func TestDefaultExportPadsMarkdownTables(t *testing.T) {
 	cfg := Default()
 	if !cfg.Export.MarkdownTablePadded {
 		t.Error("export.markdown_table_padded default = false, want true")
+	}
+	if cfg.Export.Path != "clusters/<cluster>/<context>/exports/" {
+		t.Errorf("export.path = %q", cfg.Export.Path)
+	}
+	if cfg.Export.Filename != "kubernova-<cluster>-<context>-YYMMDD-HHmm:ss" {
+		t.Errorf("export.filename = %q", cfg.Export.Filename)
+	}
+	if cfg.Export.Type != "all" || cfg.Export.Columns != "all" || cfg.Export.SortColumn != "namespace" || cfg.Export.SortDescending {
+		t.Errorf("export defaults = %+v", cfg.Export)
 	}
 }

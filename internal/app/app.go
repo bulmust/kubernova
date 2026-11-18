@@ -1809,6 +1809,18 @@ func Run() error {
 			setErrorMessage("export: " + err.Error())
 			return
 		}
+		if strings.TrimSpace(formatArg) == "" {
+			format, err = export.ParsedFormat(cfg.Export.Type)
+			if err != nil {
+				setErrorMessage("export: " + err.Error())
+				return
+			}
+		}
+		columns, err := exportColumnIndexes(cfg.Export.Columns)
+		if err != nil {
+			setErrorMessage("export: " + err.Error())
+			return
+		}
 		now := time.Now()
 		cache := client.BuildCache(clusterName, contextName, currentContainers, now)
 		cache.Prometheus = prometheusMeta
@@ -1819,11 +1831,17 @@ func Run() error {
 			PrometheusLive: prometheusState == ui.ConnectionConnected,
 			ExportDate:     now,
 		})
-		sorted := ui.SortContainers(cache.Containers(), table.SortColumnID(), table.SortDescending())
+		sortColumn := strings.TrimSpace(cfg.Export.SortColumn)
+		sortDescending := cfg.Export.SortDescending
+		if sortColumn == "" {
+			sortColumn = table.SortColumnID()
+			sortDescending = table.SortDescending()
+		}
+		sorted := ui.SortContainers(cache.Containers(), sortColumn, sortDescending)
 
 		dir := strings.TrimSpace(pathArg)
 		if dir == "" {
-			dir, err = export.Dir(clusterName, contextName)
+			dir, err = export.DirFor(cfg.Export.Path, clusterName, contextName)
 			if err != nil {
 				setErrorMessage("export: " + err.Error())
 				return
@@ -1840,12 +1858,12 @@ func Run() error {
 		writeJSON := format == export.FormatJSON || format == export.FormatAll
 		writeMarkdown := format == export.FormatMarkdown || format == export.FormatAll
 		if writeJSON {
-			raw, err := export.RenderJSON(value, cache, cached, now)
+			raw, err := export.RenderJSONWithOptions(value, cache, cached, now, export.JSONOptions{Columns: columns})
 			if err != nil {
 				setErrorMessage("export json: " + err.Error())
 				return
 			}
-			path := filepath.Join(dir, export.FileName(clusterName, contextName, now, "json"))
+			path := filepath.Join(dir, export.FileNameFromTemplate(cfg.Export.Filename, clusterName, contextName, now, "json"))
 			if err := export.WriteAtomic(path, raw); err != nil {
 				setErrorMessage("export json: " + err.Error())
 				return
@@ -1854,9 +1872,10 @@ func Run() error {
 		}
 		if writeMarkdown {
 			raw := export.RenderMarkdownWithOptions(value, sorted, cached, now, export.MarkdownOptions{
-				Padded: cfg.Export.MarkdownTablePadded,
+				Padded:  cfg.Export.MarkdownTablePadded,
+				Columns: columns,
 			})
-			path := filepath.Join(dir, export.FileName(clusterName, contextName, now, "md"))
+			path := filepath.Join(dir, export.FileNameFromTemplate(cfg.Export.Filename, clusterName, contextName, now, "md"))
 			if err := export.WriteAtomic(path, raw); err != nil {
 				setErrorMessage("export markdown: " + err.Error())
 				return
@@ -2198,7 +2217,7 @@ func Run() error {
 			table.ToggleReplicaCollapse()
 			persistViewState()
 		}),
-		registry.ShortcutExport:           consumed(func() { runExport("all", "") }),
+		registry.ShortcutExport:           consumed(func() { runExport("", "") }),
 		registry.ShortcutRefresh:          consumed(confirmRefresh),
 		registry.ShortcutOptions:          consumed(openOptions),
 		registry.ShortcutPrometheusConfig: consumed(showPrometheusConfig),

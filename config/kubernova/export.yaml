@@ -1,5 +1,29 @@
 # Report export settings. Exports are written by :export and ctrl+e.
 export:
+  # Destination directory. Relative paths are resolved under the Kubernova
+  # configuration directory ($XDG_CONFIG_HOME/kubernova/). <cluster> and
+  # <context> are replaced with the sanitized identity. Use an absolute path
+  # or a leading ~ to write elsewhere.
+  path: clusters/<cluster>/<context>/exports/
+
+  # Filename template without an extension. Supported placeholders are
+  # <cluster>, <context>, <timestamp>, and the YYMMDD-HHmm:ss time pattern.
+  filename: kubernova-<cluster>-<context>-YYMMDD-HHmm:ss
+
+  # Output type: json, md, or all. :export <type> overrides this value.
+  type: all
+
   # Pad Markdown table cells with spaces so every column lines up in source
   # and rendered Markdown. When false, cells use the compact | value | form.
   markdown_table_padded: true
+
+  # "all" writes every column. Otherwise give comma-separated column IDs or
+  # headers, for example "K02,K05,K08,P10".
+  columns: all
+
+  # Column used to sort exported rows. Empty uses the current table sort.
+  # The header name or stable ID both work.
+  sort_column: namespace
+
+  # Sort exported rows descending.
+  sort_descending: false

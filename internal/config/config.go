@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	configdefaults "kubernova/config/kubernova"
+	"kubernova/internal/model"
 	"kubernova/internal/registry"
 )
 
@@ -41,7 +42,23 @@ type Config struct {
 
 // Export groups export destination, format, and Markdown settings.
 type Export struct {
+	// Path is the destination directory. Relative paths are resolved under
+	// the Kubernova configuration directory. The placeholders <cluster> and
+	// <context> are replaced with the sanitized identity.
+	Path string `yaml:"path"`
+	// Filename is the export filename template without an extension. It
+	// supports <cluster>, <context>, <timestamp>, and the YYMMDD-HHmm:ss
+	// pattern.
+	Filename string `yaml:"filename"`
+	// Type is json, md, or all.
+	Type string `yaml:"type"`
+	// MarkdownTablePadded aligns Markdown table cells.
 	MarkdownTablePadded bool `yaml:"markdown_table_padded"`
+	// Columns is "all" or a comma-separated list of column IDs or headers.
+	Columns string `yaml:"columns"`
+	// SortColumn is the export sort column. Empty uses the current table sort.
+	SortColumn     string `yaml:"sort_column"`
+	SortDescending bool   `yaml:"sort_descending"`
 }
 
 // View contains default table view settings. Per-cluster state overrides these
@@ -271,7 +288,14 @@ func Default() Config {
 
 // DefaultExport returns the built-in export defaults.
 func DefaultExport() Export {
-	return Export{MarkdownTablePadded: true}
+	return Export{
+		Path:                "clusters/<cluster>/<context>/exports/",
+		Filename:            "kubernova-<cluster>-<context>-YYMMDD-HHmm:ss",
+		Type:                "all",
+		MarkdownTablePadded: true,
+		Columns:             "all",
+		SortColumn:          "namespace",
+	}
 }
 
 // DefaultPrometheus returns the built-in global Prometheus defaults. Per-
@@ -572,6 +596,28 @@ func (c *Config) Normalize() {
 	}
 	migrateKeybindings(c.Keybindings)
 	c.View.SortColumn = strings.ToUpper(strings.TrimSpace(c.View.SortColumn))
+
+	exportDefaults := DefaultExport()
+	c.Export.Path = strings.TrimSpace(c.Export.Path)
+	if c.Export.Path == "" {
+		c.Export.Path = exportDefaults.Path
+	}
+	c.Export.Filename = strings.TrimSpace(c.Export.Filename)
+	if c.Export.Filename == "" {
+		c.Export.Filename = exportDefaults.Filename
+	}
+	c.Export.Type = strings.ToLower(strings.TrimSpace(c.Export.Type))
+	if c.Export.Type == "" {
+		c.Export.Type = exportDefaults.Type
+	}
+	c.Export.Columns = strings.TrimSpace(c.Export.Columns)
+	if c.Export.Columns == "" {
+		c.Export.Columns = exportDefaults.Columns
+	}
+	c.Export.SortColumn = strings.TrimSpace(c.Export.SortColumn)
+	if c.Export.SortColumn == "" {
+		c.Export.SortColumn = exportDefaults.SortColumn
+	}
 }
 
 func normalizeResourceMinimum(value *ResourceMinimum) {
@@ -685,6 +731,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := validateSeverity(c.Resources.Severity); err != nil {
+		return err
+	}
+	if err := validateExport(c.Export); err != nil {
 		return err
 	}
 	if c.Resources.Memory.OOMKilledLimitMultiplier < 0 {
@@ -894,6 +943,45 @@ func validateSeverity(value ResourceSeverity) error {
 		}
 	}
 	return nil
+}
+
+func validateExport(value Export) error {
+	switch value.Type {
+	case "json", "md", "all":
+	default:
+		return fmt.Errorf("export.type %q is invalid (use json, md, or all)", value.Type)
+	}
+	if strings.EqualFold(value.Columns, "all") {
+		if value.SortColumn != "" && !validColumnReference(value.SortColumn) {
+			return fmt.Errorf("export.sort_column %q is unknown", value.SortColumn)
+		}
+		return nil
+	}
+	parts := strings.FieldsFunc(value.Columns, func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';'
+	})
+	if len(parts) == 0 {
+		return errors.New("export.columns must be \"all\" or a comma-separated list of column IDs")
+	}
+	for _, part := range parts {
+		if !validColumnReference(part) {
+			return fmt.Errorf("export.columns contains unknown column %q", part)
+		}
+	}
+	if value.SortColumn != "" && !validColumnReference(value.SortColumn) {
+		return fmt.Errorf("export.sort_column %q is unknown", value.SortColumn)
+	}
+	return nil
+}
+
+func validColumnReference(value string) bool {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	for _, column := range model.Columns {
+		if column.ID == value || column.Header == value {
+			return true
+		}
+	}
+	return false
 }
 
 // Dir returns the XDG configuration directory for Kubernova.
@@ -1255,7 +1343,13 @@ func applyConfig(values map[string]any, cfg Config) {
 	prometheus["max_concurrent_queries"] = cfg.Prometheus.MaxConcurrent
 
 	exportConfig := childMap(values, "export")
+	exportConfig["path"] = cfg.Export.Path
+	exportConfig["filename"] = cfg.Export.Filename
+	exportConfig["type"] = cfg.Export.Type
 	exportConfig["markdown_table_padded"] = cfg.Export.MarkdownTablePadded
+	exportConfig["columns"] = cfg.Export.Columns
+	exportConfig["sort_column"] = cfg.Export.SortColumn
+	exportConfig["sort_descending"] = cfg.Export.SortDescending
 
 	resources := childMap(values, "resources")
 	cpu := childMap(resources, "cpu")

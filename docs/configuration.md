@@ -233,12 +233,37 @@ documents every PromQL query, the exporters it needs and its limitations.
 
 ## Exports
 
-`:export [json|md|all] [path]` (or `ctrl+e`) writes the complete report:
-every row of every namespace and every column, in the current sort order.
-Filters, namespace selection, hidden columns and replica collapse do not
-apply. Files are written atomically to `exports/` beside `state.yaml`, or to
-the given path. An export made from cached data is marked as cached. Exports
-never contain secrets, authentication values or URL credentials.
+`:export [json|md|all] [path]` (or `ctrl+e`) writes the report:
+every row of every namespace, in the configured sort order. Filters,
+namespace selection, hidden columns and replica collapse do not apply. Files
+are written atomically. An export made from cached data is marked as cached.
+Exports never contain secrets, authentication values or URL credentials.
 
-Markdown tables are whitespace-padded so every column lines up. Set
-`export.markdown_table_padded: false` for compact `| value |` rows.
+```yaml
+export:
+  path: clusters/<cluster>/<context>/exports/
+  filename: kubernova-<cluster>-<context>-YYMMDD-HHmm:ss
+  type: all
+  markdown_table_padded: true
+  columns: all
+  sort_column: namespace
+  sort_descending: false
+```
+
+- `path`: destination directory. Relative paths are resolved under
+  `$XDG_CONFIG_HOME/kubernova/`, so the default lands beside `state.yaml`.
+  `<cluster>` and `<context>` are sanitized and substituted. An absolute path
+  or a leading `~` writes elsewhere.
+- `filename`: template without an extension. Supports `<cluster>`,
+  `<context>`, `<timestamp>`, and the `YYMMDD-HHmm:ss` time pattern. The
+  selected type's extension is appended.
+- `type`: `json`, `md`, or `all`. `ctrl+e` and `:export` without a type use
+  this value.
+- `markdown_table_padded`: align Markdown table cells with spaces. Set to
+  `false` for compact `| value |` rows.
+- `columns`: `all`, or comma-separated column IDs or headers such as
+  `K02,K05,K08,P10`. Selected columns keep the order given.
+- `sort_column`: stable ID or header used for exported rows. The default
+  `namespace` is `K02`. Empty uses the current table sort. `sort_descending`
+  reverses it.
+
