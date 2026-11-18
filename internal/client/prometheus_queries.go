@@ -307,6 +307,7 @@ func PrometheusColumnQueries(prometheus config.Prometheus, resources config.Reso
 	queries := map[string]string{
 		"P01": "-", "P02": "-", "P03": "-", "P04": "-",
 		"P05": "-", "P06": "-", "P07": "-", "P08": "-", "P09": "-",
+		"P10": "-",
 	}
 	if !prometheus.Enabled {
 		return queries

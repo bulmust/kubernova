@@ -209,7 +209,7 @@ func TestQueriesContainPrometheusColumns(t *testing.T) {
 	for _, column := range report.Queries[0].Columns {
 		columns[column.ColumnID] = column
 	}
-	for _, id := range []string{"P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09"} {
+	for _, id := range []string{"P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10"} {
 		if columns[id].ColumnID == "" {
 			t.Errorf("missing query for %s", id)
 		}
@@ -224,8 +224,8 @@ func TestQueriesContainPrometheusColumns(t *testing.T) {
 	if !strings.Contains(columns["P09"].Query, "OOMKilled") {
 		t.Errorf("P09 query = %q", columns["P09"].Query)
 	}
-	if columns["P02"].Note == "" || columns["P09"].Note == "" {
-		t.Errorf("suggestion/OOM notes missing: %#v", columns)
+	if columns["P02"].Note == "" || columns["P09"].Note == "" || columns["P10"].Note == "" {
+		t.Errorf("suggestion/OOM/severity notes missing: %#v", columns)
 	}
 }
 

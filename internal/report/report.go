@@ -717,6 +717,8 @@ func queryNote(columnID string, cfg config.Config) string {
 		return fmt.Sprintf("suggestion = value * (1 + %.0f%% buffer), min %s", cfg.Resources.Memory.SuggestionBufferPercentage.Limit, cfg.Resources.Memory.SuggestionMinimum.Limit)
 	case "P09":
 		return "yes when the container's last termination reason was observed as OOMKilled during the interval; not an exact OOM event count"
+	case "P10":
+		return "computed from CPU and memory limit suggestions and OOM observations; no PromQL query"
 	default:
 		return ""
 	}
