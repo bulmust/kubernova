@@ -121,14 +121,6 @@ func FileNameFromTemplate(template, cluster, context string, at time.Time, exten
 	return filepath.Base(name) + "." + extension
 }
 
-func identity(cluster, context string) string {
-	value := strings.Trim(strings.TrimSpace(cluster)+"-"+strings.TrimSpace(context), "-.")
-	if value == "" {
-		return "context"
-	}
-	return identityPart(value)
-}
-
 func identityPart(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
