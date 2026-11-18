@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest a new feature or improvement for Kubernova.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature. Please search existing issues first
+        and describe the problem before jumping to a solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem are you trying to solve? Who benefits from it?
+      placeholder: I want to ... so that ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, command, key binding, or configuration you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you have tried.
+    validations:
+      required: false
+  - type: textarea
+    id: config
+    attributes:
+      label: Suggested configuration
+      description: If the feature needs configuration, show a small YAML example.
+      render: yaml
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, related issues, or links.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

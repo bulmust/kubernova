@@ -1,0 +1,86 @@
+name: Bug report
+description: Report a problem with Kubernova.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please search existing
+        issues first and include enough detail to reproduce the problem.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of the bug.
+      placeholder: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact steps, commands, and key presses that trigger the bug.
+      placeholder: |
+        1. Start Kubernova with `kubernova`
+        2. Press ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened? Include error messages, status-bar text, or logs.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Kubernova version
+      description: The release version, or the output of `git rev-parse --short HEAD`.
+      placeholder: v0.1.0 or e684868
+    validations:
+      required: true
+  - type: input
+    id: go
+    attributes:
+      label: Go version
+      description: The output of `go version`, when building from source.
+      placeholder: go version go1.26.0 linux/amd64
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: OS and terminal
+      description: Operating system, terminal emulator, and terminal size.
+      placeholder: Linux, foot, 120x40
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: |
+        Paste the relevant part of `config.yaml` or `config-default.yaml`.
+        Remove cluster names, URLs, and credentials before posting.
+      render: yaml
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I removed secrets, credentials, and private cluster details from this report.
+          required: true

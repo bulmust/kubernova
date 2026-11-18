@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/bulmust/kubernova/blob/main/docs/configuration.md
+    about: Read the configuration, key binding, and architecture documentation.
+  - name: Contributing guide
+    url: https://github.com/bulmust/kubernova/blob/main/CONTRIBUTING.md
+    about: Learn how to build, test, and submit changes.
