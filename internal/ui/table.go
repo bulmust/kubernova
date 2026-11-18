@@ -319,6 +319,11 @@ func (t *ContainerTable) SetHiddenKeys(keys []string) {
 // ToggleSelectedHidden hides or restores the selected row. Hidden rows are
 // rendered gray and sorted to the end of the table. The selection stays at the
 // same table position instead of following the moved row.
+//
+// While replica pods are collapsed, the action applies to the whole replica
+// group of the selected row. Otherwise hiding one representative would reveal
+// the next pod of the same workload and make the replicas disappear one by
+// one.
 func (t *ContainerTable) ToggleSelectedHidden() bool {
 	row, _ := t.GetSelection()
 	key := t.rowKeys[row]
@@ -328,7 +333,32 @@ func (t *ContainerTable) ToggleSelectedHidden() bool {
 	if t.hidden == nil {
 		t.hidden = make(map[string]bool)
 	}
-	t.hidden[key] = !t.hidden[key]
+	toggle := func(keys []string) {
+		hide := true
+		allHidden := true
+		for _, item := range keys {
+			if !t.hidden[item] {
+				allHidden = false
+				break
+			}
+		}
+		if allHidden {
+			hide = false
+		}
+		for _, item := range keys {
+			t.hidden[item] = hide
+		}
+	}
+	if t.collapseReplica {
+		group := t.replicaGroupFor(key)
+		if len(group) > 0 {
+			toggle(group)
+		} else {
+			toggle([]string{key})
+		}
+	} else {
+		toggle([]string{key})
+	}
 	t.render()
 
 	if row > 0 && t.GetRowCount() > 1 {
@@ -567,6 +597,28 @@ func (t *ContainerTable) selectedKey() string {
 
 func containerKey(container model.Container) string {
 	return podKey(container) + "/" + container.Name
+}
+
+// replicaGroupFor returns the keys of every container in the selected row's
+// replica group. The group is empty when the row no longer exists.
+func (t *ContainerTable) replicaGroupFor(key string) []string {
+	var group string
+	for _, container := range t.containers {
+		if containerKey(container) == key {
+			group = replicaGroupKey(container)
+			break
+		}
+	}
+	if group == "" {
+		return nil
+	}
+	keys := make([]string, 0, len(t.containers))
+	for _, container := range t.containers {
+		if replicaGroupKey(container) == group {
+			keys = append(keys, containerKey(container))
+		}
+	}
+	return keys
 }
 
 func podKey(container model.Container) string {
