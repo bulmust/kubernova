@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"kubernova/internal/client"
+	"kubernova/internal/config"
 	"kubernova/internal/model"
 	"kubernova/internal/report"
 	"kubernova/internal/state"
@@ -48,19 +49,82 @@ func Dir(cluster, context string) (string, error) {
 	return filepath.Join(dir, "exports"), nil
 }
 
+// DirFor resolves the configured export directory. Relative templates are
+// resolved under the Kubernova configuration directory, so the default
+// "clusters/<cluster>/<context>/exports/" lands beside state.yaml.
+func DirFor(template, cluster, context string) (string, error) {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		return Dir(cluster, context)
+	}
+	dir := strings.ReplaceAll(template, "<cluster>", identityPart(cluster))
+	dir = strings.ReplaceAll(dir, "<context>", identityPart(context))
+	dir = expandHome(dir)
+	if !filepath.IsAbs(dir) {
+		base, err := config.Dir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(base, dir)
+	}
+	return filepath.Clean(dir), nil
+}
+
+func expandHome(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
 // FileName returns the default export filename for an identity.
 func FileName(cluster, context string, at time.Time, extension string) string {
+	return FileNameFromTemplate("kubernova-<cluster>-<context>-YYMMDD-HHmm:ss", cluster, context, at, extension)
+}
+
+// FileNameFromTemplate renders a configured filename template. Supported
+// placeholders are <cluster>, <context>, <timestamp>, and the
+// YYMMDD-HHmm:ss time pattern. A leading ~ is expanded. The extension is
+// appended unless the template already ends with it.
+func FileNameFromTemplate(template, cluster, context string, at time.Time, extension string) string {
 	if at.IsZero() {
 		at = time.Now()
 	}
-	return fmt.Sprintf("kubernova-%s-%s.%s", identity(cluster, context), at.Format("20060102-150405"), extension)
+	template = strings.TrimSpace(template)
+	if template == "" {
+		template = "kubernova-<cluster>-<context>-YYMMDD-HHmm:ss"
+	}
+	timestamp := at.Format("060102-150405")
+	name := strings.ReplaceAll(template, "<cluster>", identityPart(cluster))
+	name = strings.ReplaceAll(name, "<context>", identityPart(context))
+	name = strings.ReplaceAll(name, "<timestamp>", timestamp)
+	name = strings.ReplaceAll(name, "YYMMDD-HHmm:ss", timestamp)
+	extension = strings.TrimPrefix(strings.TrimSpace(extension), ".")
+	if extension == "" {
+		return filepath.Base(name)
+	}
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "."+strings.ToLower(extension)) {
+		return filepath.Base(name)
+	}
+	if ext := filepath.Ext(name); strings.EqualFold(ext, ".json") || strings.EqualFold(ext, ".md") {
+		name = strings.TrimSuffix(name, ext)
+	}
+	return filepath.Base(name) + "." + extension
 }
 
-func identity(cluster, context string) string {
-	value := strings.TrimSpace(cluster) + "-" + strings.TrimSpace(context)
-	value = strings.Trim(value, "-.")
+func identityPart(value string) string {
+	value = strings.TrimSpace(value)
 	if value == "" {
-		return "context"
+		return "default"
 	}
 	var b strings.Builder
 	for _, r := range value {
@@ -71,7 +135,11 @@ func identity(cluster, context string) string {
 			b.WriteByte('_')
 		}
 	}
-	return b.String()
+	name := strings.Trim(b.String(), "._")
+	if name == "" {
+		return "default"
+	}
+	return name
 }
 
 // Meta describes the export source and schema.
@@ -123,11 +191,24 @@ type container struct {
 	Prometheus *model.PrometheusData  `json:"prometheus,omitempty"`
 }
 
+// JSONOptions controls which table columns are exported.
+type JSONOptions struct {
+	// Columns lists model.Columns indexes in output order. Empty means all.
+	Columns []int
+}
+
 // RenderJSON renders the complete unfiltered export.
 func RenderJSON(value report.Report, cache client.Cache, cached bool, generatedAt time.Time) ([]byte, error) {
+	return RenderJSONWithOptions(value, cache, cached, generatedAt, JSONOptions{})
+}
+
+// RenderJSONWithOptions renders the complete unfiltered export with the
+// requested columns.
+func RenderJSONWithOptions(value report.Report, cache client.Cache, cached bool, generatedAt time.Time, options JSONOptions) ([]byte, error) {
 	if generatedAt.IsZero() {
 		generatedAt = time.Now()
 	}
+	columns := selectedColumns(options.Columns)
 	doc := document{
 		Summary:    value.Summary,
 		Suggestion: value.Suggestion,
@@ -137,7 +218,7 @@ func RenderJSON(value report.Report, cache client.Cache, cached bool, generatedA
 			GeneratedAt:   generatedAt.Format(time.RFC3339),
 			Cached:        cached,
 			Sources:       sources(value, cached),
-			Columns:       columnMetadata(),
+			Columns:       columnMetadata(columns),
 		},
 		Nodes: value.Nodes,
 	}
@@ -162,7 +243,7 @@ func RenderJSON(value report.Report, cache client.Cache, cached bool, generatedA
 				podEntry.Containers = append(podEntry.Containers, container{
 					Pod:        cachedContainer.Pod,
 					Name:       cachedContainer.Name,
-					Columns:    columnValues(cachedContainer),
+					Columns:    columnValues(cachedContainer, columns),
 					Status:     cachedContainer.Status,
 					Prometheus: cachedContainer.Prometheus,
 				})
@@ -187,24 +268,40 @@ func RenderJSON(value report.Report, cache client.Cache, cached bool, generatedA
 	return append(raw, '\n'), nil
 }
 
+// MarkdownOptions controls Markdown table formatting.
+type MarkdownOptions struct {
+	// Padded aligns every cell to the widest value in its column.
+	Padded bool
+	// Columns lists model.Columns indexes in output order. Empty means all.
+	Columns []int
+}
+
 // RenderMarkdown renders the summary and every column in the supplied sort
 // order. The caller passes all rows; filters and namespace selection are not
 // applied here.
-func RenderMarkdown(value report.Report, containers []model.Container, cached bool, _ time.Time) []byte {
+func RenderMarkdown(value report.Report, containers []model.Container, cached bool, generatedAt time.Time) []byte {
+	return RenderMarkdownWithOptions(value, containers, cached, generatedAt, MarkdownOptions{})
+}
+
+// RenderMarkdownWithOptions renders Markdown with the supplied formatting.
+func RenderMarkdownWithOptions(value report.Report, containers []model.Container, cached bool, _ time.Time, options MarkdownOptions) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Kubernova report: %s / %s\n\n", value.Summary.Cluster, value.Summary.Context)
 	if cached {
 		b.WriteString("_Source: cached table snapshot; Kubernetes API was not used._\n\n")
 	}
-	b.WriteString("## Summary\n\n| Field | Value |\n| --- | --- |\n")
+	b.WriteString("## Summary\n\n")
+	summary := make([][]string, 0)
 	for _, row := range summaryRows(value.Summary) {
-		fmt.Fprintf(&b, "| %s | %s |\n", escape(row[0]), escape(row[1]))
+		summary = append(summary, []string{row[0], row[1]})
 	}
+	writeMarkdownTable(&b, []string{"Field", "Value"}, summary, options.Padded)
 	b.WriteString("\n## Suggestion\n\n")
-	b.WriteString("| Resource | Formula |\n| --- | --- |\n")
+	suggestion := make([][]string, 0, len(value.Suggestion))
 	for _, row := range value.Suggestion {
-		fmt.Fprintf(&b, "| %s | %s |\n", escape(row.Resource), escape(row.Formula))
+		suggestion = append(suggestion, []string{row.Resource, row.Formula})
 	}
+	writeMarkdownTable(&b, []string{"Resource", "Formula"}, suggestion, options.Padded)
 	b.WriteString("\n## Queries\n\n")
 	for _, section := range value.Queries {
 		fmt.Fprintf(&b, "### %s\n\n", escape(section.Name))
@@ -224,24 +321,76 @@ func RenderMarkdown(value report.Report, containers []model.Container, cached bo
 		b.WriteString("_No containers._\n")
 		return []byte(b.String())
 	}
-	b.WriteString("|")
-	for _, column := range model.Columns {
-		fmt.Fprintf(&b, " %s (%s) |", escape(column.Header), column.ID)
+	columns := selectedColumns(options.Columns)
+	headers := make([]string, 0, len(columns))
+	for _, index := range columns {
+		column := model.Columns[index]
+		headers = append(headers, fmt.Sprintf("%s (%s)", column.Header, column.ID))
 	}
-	b.WriteString("\n|")
-	for range model.Columns {
-		b.WriteString(" --- |")
-	}
-	b.WriteString("\n")
+	rows := make([][]string, 0, len(containers))
 	for _, item := range containers {
 		values := item.Row()
+		row := make([]string, 0, len(columns))
+		for _, index := range columns {
+			row = append(row, values[index])
+		}
+		rows = append(rows, row)
+	}
+	writeMarkdownTable(&b, headers, rows, options.Padded)
+	return []byte(b.String())
+}
+
+// writeMarkdownTable writes a GitHub-flavored Markdown table. Padded tables
+// align every cell to the widest value in its column; compact tables keep the
+// minimal | value | form.
+func writeMarkdownTable(b *strings.Builder, headers []string, rows [][]string, padded bool) {
+	cell := func(row []string, index int) string {
+		if index >= len(row) {
+			return ""
+		}
+		return escape(row[index])
+	}
+	widths := make([]int, len(headers))
+	if padded {
+		for index, header := range headers {
+			widths[index] = len([]rune(escape(header)))
+		}
+		for _, row := range rows {
+			for index := range headers {
+				if width := len([]rune(cell(row, index))); width > widths[index] {
+					widths[index] = width
+				}
+			}
+		}
+	}
+	writeLine := func(row []string) {
 		b.WriteString("|")
-		for index := range model.Columns {
-			fmt.Fprintf(&b, " %s |", escape(values[index]))
+		for index := range headers {
+			b.WriteString(" ")
+			text := cell(row, index)
+			b.WriteString(text)
+			if padded {
+				b.WriteString(strings.Repeat(" ", widths[index]-len([]rune(text))))
+			}
+			b.WriteString(" |")
 		}
 		b.WriteString("\n")
 	}
-	return []byte(b.String())
+	writeLine(headers)
+	b.WriteString("|")
+	for index := range headers {
+		width := 3
+		if padded && widths[index] > width {
+			width = widths[index]
+		}
+		b.WriteString(" ")
+		b.WriteString(strings.Repeat("-", width))
+		b.WriteString(" |")
+	}
+	b.WriteString("\n")
+	for _, row := range rows {
+		writeLine(row)
+	}
 }
 
 func summaryRows(summary report.Summary) [][2]string {
@@ -270,6 +419,9 @@ func summaryRows(summary report.Summary) [][2]string {
 		[2]string{"Total containers", fmt.Sprint(summary.TotalContainers)},
 		[2]string{"Total workloads", fmt.Sprint(summary.TotalWorkloads)},
 		[2]string{"Containers using LimitRange resources", fmt.Sprint(summary.LimitRangeContainers)},
+		[2]string{"Containers severity HIGH", fmt.Sprint(summary.Severity.High)},
+		[2]string{"Containers severity MEDIUM", fmt.Sprint(summary.Severity.Medium)},
+		[2]string{"Containers severity OK", fmt.Sprint(summary.Severity.OK)},
 		[2]string{"Workloads needing adjustment", fmt.Sprint(summary.WorkloadsNeedingAdjustment)},
 		[2]string{"OOM-affected containers (Prometheus)", intPointer(summary.OOMAffectedContainersProm)},
 		[2]string{"OOM-affected workloads (Kubernetes API)", fmt.Sprint(summary.OOMAffectedWorkloadsKube)},
@@ -332,21 +484,41 @@ func sources(value report.Report, cached bool) map[string]string {
 	}
 }
 
-func columnMetadata() []ColumnMeta {
-	columns := make([]ColumnMeta, 0, len(model.Columns))
-	for _, column := range model.Columns {
-		columns = append(columns, ColumnMeta{ID: column.ID, Header: column.Header, Key: columnKey(column)})
+func columnMetadata(columns []int) []ColumnMeta {
+	metadata := make([]ColumnMeta, 0, len(columns))
+	for _, index := range columns {
+		column := model.Columns[index]
+		metadata = append(metadata, ColumnMeta{ID: column.ID, Header: column.Header, Key: columnKey(column)})
 	}
-	return columns
+	return metadata
 }
 
-func columnValues(value model.Container) map[string]string {
+func columnValues(value model.Container, columns []int) map[string]string {
 	values := value.Row()
-	result := make(map[string]string, len(model.Columns))
-	for index, column := range model.Columns {
-		result[columnKey(column)] = values[index]
+	result := make(map[string]string, len(columns))
+	for _, index := range columns {
+		result[columnKey(model.Columns[index])] = values[index]
 	}
 	return result
+}
+
+// selectedColumns returns the requested column indexes in output order, or
+// every column when none are requested.
+func selectedColumns(columns []int) []int {
+	if len(columns) == 0 {
+		columns = make([]int, len(model.Columns))
+		for index := range model.Columns {
+			columns[index] = index
+		}
+		return columns
+	}
+	selected := make([]int, 0, len(columns))
+	for _, index := range columns {
+		if index >= 0 && index < len(model.Columns) {
+			selected = append(selected, index)
+		}
+	}
+	return selected
 }
 
 func columnKey(column model.Column) string {

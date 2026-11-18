@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	configdefaults "kubernova/config/kubernova"
+	"kubernova/internal/model"
 	"kubernova/internal/registry"
 )
 
@@ -36,6 +37,28 @@ type Config struct {
 	Resources   Resources         `yaml:"resources"`
 	Kubernetes  Kubernetes        `yaml:"kubernetes"`
 	Skin        Skin              `yaml:"skin"`
+	Export      Export            `yaml:"export"`
+}
+
+// Export groups export destination, format, and Markdown settings.
+type Export struct {
+	// Path is the destination directory. Relative paths are resolved under
+	// the Kubernova configuration directory. The placeholders <cluster> and
+	// <context> are replaced with the sanitized identity.
+	Path string `yaml:"path"`
+	// Filename is the export filename template without an extension. It
+	// supports <cluster>, <context>, <timestamp>, and the YYMMDD-HHmm:ss
+	// pattern.
+	Filename string `yaml:"filename"`
+	// Type is json, md, or all.
+	Type string `yaml:"type"`
+	// MarkdownTablePadded aligns Markdown table cells.
+	MarkdownTablePadded bool `yaml:"markdown_table_padded"`
+	// Columns is "all" or a comma-separated list of column IDs or headers.
+	Columns string `yaml:"columns"`
+	// SortColumn is the export sort column. Empty uses the current table sort.
+	SortColumn     string `yaml:"sort_column"`
+	SortDescending bool   `yaml:"sort_descending"`
 }
 
 // View contains default table view settings. Per-cluster state overrides these
@@ -69,8 +92,32 @@ type Prometheus struct {
 
 // Resources groups CPU and memory analysis settings.
 type Resources struct {
-	CPU    ResourceCPU    `yaml:"cpu"`
-	Memory ResourceMemory `yaml:"memory"`
+	CPU      ResourceCPU      `yaml:"cpu"`
+	Memory   ResourceMemory   `yaml:"memory"`
+	Severity ResourceSeverity `yaml:"severity"`
+}
+
+// ResourceSeverity configures the severity of limit suggestions. A suggestion
+// is HIGH only when both its relative and absolute differences reach the high
+// thresholds. OOMKilled containers are always HIGH.
+type ResourceSeverity struct {
+	Medium SeverityThreshold `yaml:"medium"`
+	High   SeverityHigh      `yaml:"high"`
+}
+
+type SeverityThreshold struct {
+	Percent float64 `yaml:"percent"`
+}
+
+type SeverityHigh struct {
+	Percent float64         `yaml:"percent"`
+	Minimum SeverityMinimum `yaml:"minimum"`
+}
+
+// SeverityMinimum holds the smallest absolute difference that can be HIGH.
+type SeverityMinimum struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
 }
 
 type ResourceCPU struct {
@@ -233,9 +280,22 @@ func Default() Config {
 				RequestTimeout: Duration(6 * time.Second),
 				PageSize:       100,
 			},
+			Export: DefaultExport(),
 		}
 	}
 	return snapshot.Config
+}
+
+// DefaultExport returns the built-in export defaults.
+func DefaultExport() Export {
+	return Export{
+		Path:                "clusters/<cluster>/<context>/exports/",
+		Filename:            "kubernova-<cluster>-<context>-YYMMDD-HHmm:ss",
+		Type:                "all",
+		MarkdownTablePadded: true,
+		Columns:             "all",
+		SortColumn:          "namespace",
+	}
 }
 
 // DefaultPrometheus returns the built-in global Prometheus defaults. Per-
@@ -270,6 +330,13 @@ func DefaultResources() Resources {
 			SuggestionBufferPercentage: Percentages{Limit: 10},
 			SuggestionMinimum:          ResourceMinimum{Request: "32Mi", Limit: "32Mi"},
 			RateWindow:                 5 * time.Minute,
+		},
+		Severity: ResourceSeverity{
+			Medium: SeverityThreshold{Percent: 10},
+			High: SeverityHigh{
+				Percent: 50,
+				Minimum: SeverityMinimum{CPU: "50m", Memory: "50Mi"},
+			},
 		},
 	}
 }
@@ -513,6 +580,8 @@ func (c *Config) Normalize() {
 	}
 	normalizeResourceMinimum(&c.Resources.CPU.SuggestionMinimum)
 	normalizeResourceMinimum(&c.Resources.Memory.SuggestionMinimum)
+	c.Resources.Severity.High.Minimum.CPU = strings.TrimSpace(c.Resources.Severity.High.Minimum.CPU)
+	c.Resources.Severity.High.Minimum.Memory = strings.TrimSpace(c.Resources.Severity.High.Minimum.Memory)
 
 	if c.Keybindings == nil {
 		c.Keybindings = make(map[string]string)
@@ -527,6 +596,28 @@ func (c *Config) Normalize() {
 	}
 	migrateKeybindings(c.Keybindings)
 	c.View.SortColumn = strings.ToUpper(strings.TrimSpace(c.View.SortColumn))
+
+	exportDefaults := DefaultExport()
+	c.Export.Path = strings.TrimSpace(c.Export.Path)
+	if c.Export.Path == "" {
+		c.Export.Path = exportDefaults.Path
+	}
+	c.Export.Filename = strings.TrimSpace(c.Export.Filename)
+	if c.Export.Filename == "" {
+		c.Export.Filename = exportDefaults.Filename
+	}
+	c.Export.Type = strings.ToLower(strings.TrimSpace(c.Export.Type))
+	if c.Export.Type == "" {
+		c.Export.Type = exportDefaults.Type
+	}
+	c.Export.Columns = strings.TrimSpace(c.Export.Columns)
+	if c.Export.Columns == "" {
+		c.Export.Columns = exportDefaults.Columns
+	}
+	c.Export.SortColumn = strings.TrimSpace(c.Export.SortColumn)
+	if c.Export.SortColumn == "" {
+		c.Export.SortColumn = exportDefaults.SortColumn
+	}
 }
 
 func normalizeResourceMinimum(value *ResourceMinimum) {
@@ -637,6 +728,12 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := validateResourceGroup("resources.memory", c.Resources.Memory.Enabled, c.Resources.Memory.Range, c.Resources.Memory.Percentiles, c.Resources.Memory.SuggestionBufferPercentage, c.Resources.Memory.SuggestionMinimum); err != nil {
+		return err
+	}
+	if err := validateSeverity(c.Resources.Severity); err != nil {
+		return err
+	}
+	if err := validateExport(c.Export); err != nil {
 		return err
 	}
 	if c.Resources.Memory.OOMKilledLimitMultiplier < 0 {
@@ -824,6 +921,69 @@ func validateResourceGroup(path string, enabled bool, rangeValue Duration, perce
 	return nil
 }
 
+func validateSeverity(value ResourceSeverity) error {
+	for name, percent := range map[string]float64{
+		"medium": value.Medium.Percent,
+		"high":   value.High.Percent,
+	} {
+		if percent < 0 || percent > 100 {
+			return fmt.Errorf("resources.severity.%s.percent must be between 0 and 100", name)
+		}
+	}
+	if value.High.Percent < value.Medium.Percent {
+		return errors.New("resources.severity.high.percent must not be lower than resources.severity.medium.percent")
+	}
+	for name, minimum := range map[string]string{
+		"cpu":    value.High.Minimum.CPU,
+		"memory": value.High.Minimum.Memory,
+	} {
+		quantity, err := resource.ParseQuantity(strings.TrimSpace(minimum))
+		if err != nil || quantity.Sign() < 0 {
+			return fmt.Errorf("resources.severity.high.minimum.%s must be a non-negative Kubernetes resource quantity", name)
+		}
+	}
+	return nil
+}
+
+func validateExport(value Export) error {
+	switch value.Type {
+	case "json", "md", "all":
+	default:
+		return fmt.Errorf("export.type %q is invalid (use json, md, or all)", value.Type)
+	}
+	if strings.EqualFold(value.Columns, "all") {
+		if value.SortColumn != "" && !validColumnReference(value.SortColumn) {
+			return fmt.Errorf("export.sort_column %q is unknown", value.SortColumn)
+		}
+		return nil
+	}
+	parts := strings.FieldsFunc(value.Columns, func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';'
+	})
+	if len(parts) == 0 {
+		return errors.New("export.columns must be \"all\" or a comma-separated list of column IDs")
+	}
+	for _, part := range parts {
+		if !validColumnReference(part) {
+			return fmt.Errorf("export.columns contains unknown column %q", part)
+		}
+	}
+	if value.SortColumn != "" && !validColumnReference(value.SortColumn) {
+		return fmt.Errorf("export.sort_column %q is unknown", value.SortColumn)
+	}
+	return nil
+}
+
+func validColumnReference(value string) bool {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	for _, column := range model.Columns {
+		if column.ID == value || column.Header == value {
+			return true
+		}
+	}
+	return false
+}
+
 // Dir returns the XDG configuration directory for Kubernova.
 func Dir() (string, error) {
 	base, err := os.UserConfigDir()
@@ -961,6 +1121,7 @@ func removeKnownValues(values map[string]any) {
 		{"prometheus", "basic_password_env"},
 		{"prometheus", "label_filters"},
 		{"resources"},
+		{"export"},
 		{"kubernetes", "enabled"},
 		{"kubernetes", "access_mode"},
 		{"kubernetes", "kubeconfig_path"},
@@ -1181,6 +1342,15 @@ func applyConfig(values map[string]any, cfg Config) {
 	prometheus["rate_window"] = cfg.Prometheus.RateWindow
 	prometheus["max_concurrent_queries"] = cfg.Prometheus.MaxConcurrent
 
+	exportConfig := childMap(values, "export")
+	exportConfig["path"] = cfg.Export.Path
+	exportConfig["filename"] = cfg.Export.Filename
+	exportConfig["type"] = cfg.Export.Type
+	exportConfig["markdown_table_padded"] = cfg.Export.MarkdownTablePadded
+	exportConfig["columns"] = cfg.Export.Columns
+	exportConfig["sort_column"] = cfg.Export.SortColumn
+	exportConfig["sort_descending"] = cfg.Export.SortDescending
+
 	resources := childMap(values, "resources")
 	cpu := childMap(resources, "cpu")
 	cpu["enabled"] = cfg.Resources.CPU.Enabled
@@ -1212,6 +1382,15 @@ func applyConfig(values map[string]any, cfg Config) {
 	memoryMinimum["request"] = cfg.Resources.Memory.SuggestionMinimum.Request
 	memoryMinimum["limit"] = cfg.Resources.Memory.SuggestionMinimum.Limit
 	memory["rate_window"] = cfg.Resources.Memory.RateWindow
+
+	severity := childMap(resources, "severity")
+	medium := childMap(severity, "medium")
+	medium["percent"] = cfg.Resources.Severity.Medium.Percent
+	high := childMap(severity, "high")
+	high["percent"] = cfg.Resources.Severity.High.Percent
+	highMinimum := childMap(high, "minimum")
+	highMinimum["cpu"] = cfg.Resources.Severity.High.Minimum.CPU
+	highMinimum["memory"] = cfg.Resources.Severity.High.Minimum.Memory
 }
 
 func childMap(parent map[string]any, key string) map[string]any {

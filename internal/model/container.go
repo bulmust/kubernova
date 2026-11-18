@@ -3,7 +3,15 @@ package model
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
+)
+
+// Severity levels for resource suggestions and OOM-affected containers.
+const (
+	SeverityOK     = "OK"
+	SeverityMedium = "MEDIUM"
+	SeverityHigh   = "HIGH"
 )
 
 // Column is one table column with a stable identity independent of its display
@@ -46,6 +54,7 @@ var Columns = []Column{
 	{ID: "P07", Header: "MEM_LIM_USE", Description: "memory limit usage percentile", HiddenByDefault: true},
 	{ID: "P08", Header: "MEM_LIM_SUG", Description: "memory limit suggestion", HiddenByDefault: true},
 	{ID: "P09", Header: "OOM_AFFECTED", Description: "container observed with OOMKilled as last termination reason", HiddenByDefault: true},
+	{ID: "P10", Header: "SEVERITY", Description: "limit suggestion severity: OK, MEDIUM, or HIGH; OOMKilled containers are HIGH", HiddenByDefault: true},
 }
 
 // Headers are the table column headers in display order.
@@ -84,6 +93,7 @@ type PrometheusData struct {
 	MemoryLimitSuggestion   *float64  `json:"memory_limit_suggestion,omitempty"`
 	OOMKills                *int64    `json:"oom_kills,omitempty"`
 	OOMAvailable            *bool     `json:"oom_available,omitempty"`
+	Severity                string    `json:"severity,omitempty"`
 	FetchedAt               time.Time `json:"fetched_at"`
 	Range                   string    `json:"range,omitempty"`
 	Step                    string    `json:"step,omitempty"`
@@ -170,6 +180,35 @@ func (c Container) Completed() bool {
 	return c.Status != nil && c.Status.State == "Terminated" && c.Status.Reason == "Completed"
 }
 
+// OOMKilled reports whether Kubernetes or Prometheus observed an OOM kill for
+// the container.
+func (c Container) OOMKilled() bool {
+	if strings.EqualFold(strings.TrimSpace(c.OOM), "yes") {
+		return true
+	}
+	return c.Status != nil && (c.Status.Reason == "OOMKilled" || c.Status.LastTerminatedReason == "OOMKilled")
+}
+
+// Severity returns the container's severity. OOMKilled containers are always
+// HIGH; otherwise the limit-severity computed with the Prometheus results is
+// used.
+func (c Container) Severity() string {
+	if c.OOMKilled() {
+		return SeverityHigh
+	}
+	if c.Prometheus == nil {
+		return SeverityOK
+	}
+	switch strings.ToUpper(strings.TrimSpace(c.Prometheus.Severity)) {
+	case SeverityHigh:
+		return SeverityHigh
+	case SeverityMedium:
+		return SeverityMedium
+	default:
+		return SeverityOK
+	}
+}
+
 // Row renders a container as a table row. The order matches Columns.
 func (c Container) Row() []string {
 	cpuRequestUsage := formatCPU(c.prometheusField(func(data *PrometheusData) *float64 { return data.CPURequestPercentile }))
@@ -230,6 +269,7 @@ func (c Container) Row() []string {
 		memoryLimitUsage,
 		memoryLimitSuggestion,
 		oomKills,
+		c.Severity(),
 	}
 }
 

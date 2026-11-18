@@ -66,7 +66,7 @@ To add usage data from Prometheus, run `:prometheusurl <url>` and then
 | `space` | hide the row and move it to the end |
 | `ctrl+t` | collapse or expand replica pods |
 | `f` | fullscreen table |
-| `ctrl+e` | export a JSON and Markdown report |
+| `ctrl+e` | export a JSON, Markdown, or combined report |
 | `ctrl+r` | refresh (asks for confirmation) |
 | `ctrl+p` | edit `config.yaml` |
 | `ctrl+g` | Prometheus settings for this context |

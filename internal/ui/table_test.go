@@ -388,6 +388,40 @@ func TestReplicaCollapseKeepsHiddenRowsAtEnd(t *testing.T) {
 	}
 }
 
+func TestToggleHiddenCollapsedReplicaHidesWholeGroup(t *testing.T) {
+	table := NewContainerTable(testReplicaContainers())
+	table.Select(1, 0) // web-0/app, the collapsed representative.
+
+	if !table.ToggleSelectedHidden() {
+		t.Fatal("ToggleSelectedHidden() = false, want true")
+	}
+	if got := cellID(t, table, 1, "K05"); got != "agent-x" {
+		t.Errorf("active row after hiding replicas = %q, want agent-x", got)
+	}
+	hidden := table.HiddenKeys()
+	if len(hidden) != 4 {
+		t.Fatalf("hidden keys = %v, want all four web containers", hidden)
+	}
+	for row := table.GetRowCount() - 4; row < table.GetRowCount(); row++ {
+		if fg, _, _ := table.GetCell(row, 0).Style.Decompose(); fg != tcell.ColorGray {
+			t.Errorf("replica row %d color = %v, want gray", row, fg)
+		}
+	}
+
+	// Select a hidden member of the group and restore the whole group.
+	table.Select(table.GetRowCount()-1, 0)
+	table.ToggleSelectedHidden()
+	if got := table.GetRowCount(); got != 1+3 {
+		t.Errorf("row count after restoring replicas = %d, want %d", got, 1+3)
+	}
+	if len(table.HiddenKeys()) != 0 {
+		t.Errorf("hidden keys after restore = %v, want none", table.HiddenKeys())
+	}
+	if got := cellID(t, table, 1, "K05"); got != "web-0" {
+		t.Errorf("first active row after restore = %q, want web-0", got)
+	}
+}
+
 func TestFilterUsesVisibleColumns(t *testing.T) {
 	table := NewContainerTable(testContainers())
 	namespace := ColumnIndex("K02")

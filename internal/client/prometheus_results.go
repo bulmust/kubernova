@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"kubernova/internal/config"
 	"kubernova/internal/model"
 )
 
@@ -118,10 +121,11 @@ type prometheusObservation struct {
 	oom        *int64
 }
 
-// ApplyPrometheusResults matches Prometheus series to Kubernetes rows, applies
-// owner-level max aggregation for percentiles and sum aggregation for OOM
-// counts, and computes suggestions. Series absent from Kubernetes data are
-// ignored.
+// ApplyPrometheusResults matches Prometheus series to Kubernetes rows. Usage
+// percentiles are applied per pod and container, while suggestions use owner-
+// level max aggregation so that every replica receives the same recommendation.
+// OOM observations are aggregated per owner. Series absent from Kubernetes data
+// are ignored.
 func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan, results QueryResults, fetchedAt time.Time) []model.Container {
 	if len(containers) == 0 {
 		return containers
@@ -146,6 +150,24 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 		}
 		return value
 	}
+	// Percentile cells are per pod, while suggestions are deliberately
+	// aggregated per owner and container name below.
+	usage := make(map[resourceKey]*prometheusObservation)
+	getUsage := func(key resourceKey) *prometheusObservation {
+		value := usage[key]
+		if value == nil {
+			value = &prometheusObservation{}
+			usage[key] = value
+		}
+		return value
+	}
+	resourceKeyForSample := func(sample PrometheusSample) (resourceKey, bool) {
+		key := resourceKey{
+			sample.Metric["namespace"], sample.Metric["pod"], sample.Metric["container"],
+		}
+		_, ok := byResource[key]
+		return key, ok
+	}
 	ownerKeyForSample := func(sample PrometheusSample) (ownerContainerKey, bool) {
 		index, ok := byResource[resourceKey{
 			sample.Metric["namespace"], sample.Metric["pod"], sample.Metric["container"],
@@ -169,16 +191,23 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 			if !request && !limit {
 				continue
 			}
+			resource, ok := resourceKeyForSample(sample)
+			if !ok {
+				continue
+			}
 			key, ok := ownerKeyForSample(sample)
 			if !ok {
 				continue
 			}
 			value := get(key)
+			podValue := getUsage(resource)
 			if request {
 				maxFloat(&value.cpuRequest, sample.Value)
+				maxFloat(&podValue.cpuRequest, sample.Value)
 			}
 			if limit {
 				maxFloat(&value.cpuLimit, sample.Value)
+				maxFloat(&podValue.cpuLimit, sample.Value)
 			}
 		}
 	}
@@ -188,16 +217,23 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 			if !request && !limit {
 				continue
 			}
+			resource, ok := resourceKeyForSample(sample)
+			if !ok {
+				continue
+			}
 			key, ok := ownerKeyForSample(sample)
 			if !ok {
 				continue
 			}
 			value := get(key)
+			podValue := getUsage(resource)
 			if request {
 				maxFloat(&value.memRequest, sample.Value)
+				maxFloat(&podValue.memRequest, sample.Value)
 			}
 			if limit {
 				maxFloat(&value.memLimit, sample.Value)
+				maxFloat(&podValue.memLimit, sample.Value)
 			}
 		}
 	}
@@ -224,6 +260,7 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 	for key, value := range observations {
 		for _, index := range owners[key] {
 			container := &containers[index]
+			containerUsage := usage[resourceKey{container.Namespace, container.Pod, container.Name}]
 			if container.Prometheus == nil {
 				container.Prometheus = &model.PrometheusData{Source: "prometheus"}
 			}
@@ -234,15 +271,19 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 			if plan.CPU != nil {
 				data.Range = promDuration(plan.CPU.Range)
 				data.Step = promDuration(plan.CPU.Step)
-				if value.cpuRequest != nil {
-					copy := *value.cpuRequest
+				if containerUsage != nil && containerUsage.cpuRequest != nil {
+					copy := *containerUsage.cpuRequest
 					data.CPURequestPercentile = &copy
+				}
+				if containerUsage != nil && containerUsage.cpuLimit != nil {
+					copy := *containerUsage.cpuLimit
+					data.CPULimitPercentile = &copy
+				}
+				if value.cpuRequest != nil {
 					suggestion := math.Max(*value.cpuRequest*(1+plan.CPU.RequestBuffer/100), plan.CPU.RequestMinimum)
 					data.CPURequestSuggestion = &suggestion
 				}
 				if value.cpuLimit != nil {
-					copy := *value.cpuLimit
-					data.CPULimitPercentile = &copy
 					suggestion := math.Max(*value.cpuLimit*(1+plan.CPU.LimitBuffer/100), plan.CPU.LimitMinimum)
 					data.CPULimitSuggestion = &suggestion
 				}
@@ -253,15 +294,19 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 					data.Step = promDuration(plan.Memory.Step)
 				}
 				oomAffected := strings.EqualFold(strings.TrimSpace(container.OOM), "yes") || value.oom != nil
-				if value.memRequest != nil {
-					copy := *value.memRequest
+				if containerUsage != nil && containerUsage.memRequest != nil {
+					copy := *containerUsage.memRequest
 					data.MemoryRequestPercentile = &copy
+				}
+				if containerUsage != nil && containerUsage.memLimit != nil {
+					copy := *containerUsage.memLimit
+					data.MemoryLimitPercentile = &copy
+				}
+				if value.memRequest != nil {
 					suggestion := math.Max(*value.memRequest*(1+plan.Memory.RequestBuffer/100), plan.Memory.RequestMinimum)
 					data.MemoryRequestSuggestion = &suggestion
 				}
 				if value.memLimit != nil {
-					copy := *value.memLimit
-					data.MemoryLimitPercentile = &copy
 					suggestion := math.Max(*value.memLimit*(1+plan.Memory.LimitBuffer/100), plan.Memory.LimitMinimum)
 					if oomAffected && plan.Memory.OOMKilledLimitMultiplier > 0 {
 						if currentLimit := memoryValue(container.MemLim); currentLimit > 0 {
@@ -280,9 +325,85 @@ func ApplyPrometheusResults(containers []model.Container, plan ResourceQueryPlan
 					data.OOMKills = &count
 				}
 			}
+			data.Severity = limitSeverity(*container, data, plan.Severity, value.oom != nil)
 		}
 	}
 	return containers
+}
+
+// limitSeverity grades the CPU and memory limit suggestions for one container.
+// OOM-affected containers are always HIGH. A HIGH suggestion must reach both
+// the relative percentage and the absolute minimum; otherwise a suggestion
+// above the medium percentage is MEDIUM.
+func limitSeverity(container model.Container, data *model.PrometheusData, severity config.ResourceSeverity, prometheusOOM bool) string {
+	level := model.SeverityOK
+	checks := []struct {
+		current    string
+		suggestion *float64
+		minimum    float64
+	}{
+		{container.CPULim, data.CPULimitSuggestion, quantityValue(severity.High.Minimum.CPU)},
+		{container.MemLim, data.MemoryLimitSuggestion, quantityValue(severity.High.Minimum.Memory)},
+	}
+	for _, check := range checks {
+		switch severityLevel(check.current, check.suggestion, severity.Medium.Percent, severity.High.Percent, check.minimum) {
+		case model.SeverityHigh:
+			return model.SeverityHigh
+		case model.SeverityMedium:
+			level = model.SeverityMedium
+		}
+	}
+	if container.OOMKilled() || prometheusOOM {
+		return model.SeverityHigh
+	}
+	return level
+}
+
+func severityLevel(current string, suggestion *float64, mediumPercent, highPercent, highMinimum float64) string {
+	if suggestion == nil {
+		return model.SeverityOK
+	}
+	currentValue, ok := quantityFloat(current)
+	if !ok {
+		currentValue = 0
+	}
+	change := math.Abs(*suggestion - currentValue)
+	if change == 0 {
+		return model.SeverityOK
+	}
+	relative := math.Inf(1)
+	if currentValue > 0 {
+		relative = change / currentValue * 100
+	}
+	if highPercent > 0 || highMinimum > 0 {
+		if relative >= highPercent && change >= highMinimum {
+			return model.SeverityHigh
+		}
+	}
+	if relative > mediumPercent {
+		return model.SeverityMedium
+	}
+	return model.SeverityOK
+}
+
+func quantityValue(value string) float64 {
+	parsed, ok := quantityFloat(value)
+	if !ok {
+		return 0
+	}
+	return parsed
+}
+
+func quantityFloat(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "-" {
+		return 0, false
+	}
+	quantity, err := resource.ParseQuantity(value)
+	if err != nil {
+		return 0, false
+	}
+	return quantity.AsApproximateFloat64(), true
 }
 
 func percentileParts(group *PercentileQuery, sample PrometheusSample) (request, limit bool) {

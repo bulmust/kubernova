@@ -179,8 +179,8 @@ func TestCompletionSuffix(t *testing.T) {
 
 func TestAvailableQColumns(t *testing.T) {
 	cfg := config.Default()
-	if got := availablePrometheusColumns(cfg); len(got) != 7 {
-		t.Errorf("default available P columns = %v, want 7", got)
+	if got := availablePrometheusColumns(cfg); len(got) != 8 {
+		t.Errorf("default available P columns = %v, want 8", got)
 	}
 	cfg.Resources.CPU.Percentiles.Request = 0
 	cfg.Resources.Memory.OOMKilledCheck = false
@@ -264,5 +264,28 @@ func TestColumnSourceLabels(t *testing.T) {
 	}
 	if got := columnSource("P05"); got != "prometheus" {
 		t.Errorf("columnSource(P05) = %q, want prometheus", got)
+	}
+}
+
+func TestExportColumnIndexes(t *testing.T) {
+	all, err := exportColumnIndexes("all")
+	if err != nil || all != nil {
+		t.Fatalf("exportColumnIndexes(all) = %v, %v", all, err)
+	}
+	indexes, err := exportColumnIndexes("K02, K05,K08")
+	if err != nil {
+		t.Fatalf("exportColumnIndexes() error = %v", err)
+	}
+	want := []int{0, 3, 4}
+	if len(indexes) != len(want) {
+		t.Fatalf("indexes = %v, want %v", indexes, want)
+	}
+	for index := range want {
+		if indexes[index] != want[index] {
+			t.Errorf("indexes = %v, want %v", indexes, want)
+		}
+	}
+	if _, err := exportColumnIndexes("K02,NOPE"); err == nil {
+		t.Error("unknown column was accepted")
 	}
 }

@@ -81,6 +81,9 @@ func TestRenderMarkdownGolden(t *testing.T) {
 		"| Total CPU Request Change Suggestion | +100m (+100.0%) |",
 		"| Rate window | 5m0s |",
 		"Containers using LimitRange resources",
+		"Containers severity HIGH",
+		"Containers severity MEDIUM",
+		"Containers severity OK",
 		"OOM-affected containers (Prometheus)",
 		"OOM-affected workloads (Kubernetes API)",
 		"CPU request suggestion vs allocatable CPU",
@@ -103,6 +106,95 @@ func TestRenderMarkdownGolden(t *testing.T) {
 	if strings.Contains(text, "Prometheus mode") {
 		t.Errorf("Markdown still contains Prometheus mode:\n%s", text)
 	}
+}
+
+func TestRenderMarkdownPadded(t *testing.T) {
+	cache, value, at := fixture()
+	raw := RenderMarkdownWithOptions(value, cache.Containers(), false, at, MarkdownOptions{Padded: true})
+	text := string(raw)
+	lines := strings.Split(text, "\n")
+	var summary, rule, firstRow string
+	for index, line := range lines {
+		if line == "| Field" || strings.HasPrefix(line, "| Field ") {
+			summary = line
+			rule = lines[index+1]
+			firstRow = lines[index+2]
+			break
+		}
+	}
+	if summary == "" {
+		t.Fatalf("padded Markdown has no summary table:\n%s", text)
+	}
+	if len(rule) != len(summary) || len(firstRow) != len(summary) {
+		t.Errorf("padded rows have different widths:\n%s\n%s\n%s", summary, rule, firstRow)
+	}
+	if !strings.Contains(firstRow, "| Cluster ") {
+		t.Errorf("padded first summary row = %q", firstRow)
+	}
+	if strings.HasPrefix(rule, "| --- |") {
+		t.Errorf("padded separator was not widened: %q", rule)
+	}
+}
+
+func TestDirForResolvesDefaultTemplate(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	dir, err := DirFor("clusters/<cluster>/<context>/exports/", "prod", "ctx/one")
+	if err != nil {
+		t.Fatalf("DirFor() error = %v", err)
+	}
+	want := filepath.Join(base, "kubernova", "clusters", "prod", "ctx_one", "exports")
+	if dir != want {
+		t.Errorf("DirFor() = %q, want %q", dir, want)
+	}
+}
+
+func TestFileNameFromTemplate(t *testing.T) {
+	at := time.Date(2026, 11, 10, 12, 30, 0, 0, time.UTC)
+	got := FileNameFromTemplate("report-<cluster>-<context>-<timestamp>", "prod", "ctx", at, "md")
+	if got != "report-prod-ctx-261110-123000.md" {
+		t.Errorf("FileNameFromTemplate() = %q", got)
+	}
+	if got := FileNameFromTemplate("report.json", "prod", "ctx", at, "md"); got != "report.md" {
+		t.Errorf("FileNameFromTemplate() replaced extension = %q, want report.md", got)
+	}
+}
+
+func TestExportSelectedColumns(t *testing.T) {
+	cache, value, at := fixture()
+	columns := []int{columnIndexOf("K02"), columnIndexOf("K08"), columnIndexOf("P10")}
+	markdown := string(RenderMarkdownWithOptions(value, cache.Containers(), false, at, MarkdownOptions{Columns: columns}))
+	if !strings.Contains(markdown, "NAMESPACE (K02)") || !strings.Contains(markdown, "CONTAINER (K08)") ||
+		!strings.Contains(markdown, "SEVERITY (P10)") {
+		t.Errorf("selected columns are missing:\n%s", markdown)
+	}
+	if strings.Contains(markdown, "CPU REQ (K09)") || strings.Contains(markdown, "POD (K05)") {
+		t.Errorf("unselected columns were exported:\n%s", markdown)
+	}
+	raw, err := RenderJSONWithOptions(value, cache, false, at, JSONOptions{Columns: columns})
+	if err != nil {
+		t.Fatalf("RenderJSONWithOptions() error = %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{`"namespace":`, `"container":`, `"severity": "OK"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("JSON is missing selected column %s", want)
+		}
+	}
+	for _, unwanted := range []string{`"cpu_req":`, `"mem_lim":`} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("JSON contains unselected column %s", unwanted)
+		}
+	}
+}
+
+func columnIndexOf(id string) int {
+	for index, column := range model.Columns {
+		if column.ID == id {
+			return index
+		}
+	}
+	return -1
 }
 
 func TestWriteAtomicCreatesFile(t *testing.T) {
@@ -131,7 +223,7 @@ func TestWriteAtomicCreatesFile(t *testing.T) {
 
 func TestDefaultNamesIncludeContextIdentity(t *testing.T) {
 	at := time.Date(2026, 11, 10, 12, 30, 0, 0, time.UTC)
-	if got := FileName("prod", "ctx/one", at, "json"); got != "kubernova-prod-ctx_one-20261110-123000.json" {
+	if got := FileName("prod", "ctx/one", at, "json"); got != "kubernova-prod-ctx_one-261110-123000.json" {
 		t.Errorf("FileName() = %q", got)
 	}
 	format, err := ParsedFormat("markdown")

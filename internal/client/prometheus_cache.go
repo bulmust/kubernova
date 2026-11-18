@@ -54,6 +54,10 @@ func PrometheusFingerprint(prometheus config.Prometheus, resources config.Resour
 		"mem_buf_lim=" + floatString(resources.Memory.SuggestionBufferPercentage.Limit),
 		"mem_min_req=" + resources.Memory.SuggestionMinimum.Request,
 		"mem_min_lim=" + resources.Memory.SuggestionMinimum.Limit,
+		"sev_medium=" + floatString(resources.Severity.Medium.Percent),
+		"sev_high=" + floatString(resources.Severity.High.Percent),
+		"sev_high_cpu=" + resources.Severity.High.Minimum.CPU,
+		"sev_high_mem=" + resources.Severity.High.Minimum.Memory,
 		"labels=" + strings.Join(labels, ","),
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))

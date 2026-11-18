@@ -466,6 +466,11 @@ func TestPrometheusAndResourceDefaults(t *testing.T) {
 	if memory.SuggestionMinimum.Request != "32Mi" || memory.SuggestionMinimum.Limit != "32Mi" {
 		t.Errorf("memory suggestion minimum = %+v", memory.SuggestionMinimum)
 	}
+	severity := cfg.Resources.Severity
+	if severity.Medium.Percent != 10 || severity.High.Percent != 50 ||
+		severity.High.Minimum.CPU != "50m" || severity.High.Minimum.Memory != "50Mi" {
+		t.Errorf("severity defaults = %+v", severity)
+	}
 }
 
 func TestPrometheusValidation(t *testing.T) {
@@ -481,6 +486,12 @@ func TestPrometheusValidation(t *testing.T) {
 		{"bad cpu minimum", "resources:\n  cpu:\n    suggestion_minimum:\n      request: nope\n", "resources.cpu.suggestion_minimum.request"},
 		{"negative memory minimum", "resources:\n  memory:\n    suggestion_minimum:\n      limit: -1Mi\n", "resources.memory.suggestion_minimum.limit"},
 		{"negative OOM limit multiplier", "resources:\n  memory:\n    oomkilled_limit_multiplier: -0.5\n", "resources.memory.oomkilled_limit_multiplier"},
+		{"high severity percent", "resources:\n  severity:\n    high:\n      percent: 101\n", "resources.severity.high.percent"},
+		{"inverted severity percent", "resources:\n  severity:\n    medium:\n      percent: 60\n    high:\n      percent: 50\n", "resources.severity.high.percent"},
+		{"bad severity minimum", "resources:\n  severity:\n    high:\n      minimum:\n        memory: nope\n", "resources.severity.high.minimum.memory"},
+		{"bad export type", "export:\n  type: yaml\n", "export.type"},
+		{"bad export column", "export:\n  columns: K02,NOPE\n", "export.columns"},
+		{"bad export sort column", "export:\n  sort_column: NOPE\n", "export.sort_column"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -634,5 +645,21 @@ func TestDefaultViewSortsByNamespace(t *testing.T) {
 	cfg := Default()
 	if cfg.View.SortColumn != "K02" || cfg.View.SortDescending {
 		t.Errorf("default sort = %q descending=%v, want K02 ascending", cfg.View.SortColumn, cfg.View.SortDescending)
+	}
+}
+
+func TestDefaultExportPadsMarkdownTables(t *testing.T) {
+	cfg := Default()
+	if !cfg.Export.MarkdownTablePadded {
+		t.Error("export.markdown_table_padded default = false, want true")
+	}
+	if cfg.Export.Path != "clusters/<cluster>/<context>/exports/" {
+		t.Errorf("export.path = %q", cfg.Export.Path)
+	}
+	if cfg.Export.Filename != "kubernova-<cluster>-<context>-YYMMDD-HHmm:ss" {
+		t.Errorf("export.filename = %q", cfg.Export.Filename)
+	}
+	if cfg.Export.Type != "all" || cfg.Export.Columns != "all" || cfg.Export.SortColumn != "namespace" || cfg.Export.SortDescending {
+		t.Errorf("export defaults = %+v", cfg.Export)
 	}
 }

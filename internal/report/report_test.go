@@ -62,6 +62,9 @@ func TestBuildSummaryTotals(t *testing.T) {
 	if summary.TotalPods != 3 || summary.TotalContainers != 3 || summary.TotalWorkloads != 1 {
 		t.Errorf("counts = pods %d containers %d workloads %d", summary.TotalPods, summary.TotalContainers, summary.TotalWorkloads)
 	}
+	if summary.Severity.High != 3 || summary.Severity.Medium != 0 || summary.Severity.OK != 0 {
+		t.Errorf("severity counts = %+v, want three HIGH (OOMKilled)", summary.Severity)
+	}
 	if summary.WorkloadsNeedingAdjustment != 1 || summary.OOMAffectedWorkloadsKube != 1 || summary.OOMAffectedContainersProm == nil || *summary.OOMAffectedContainersProm != 3 {
 		t.Errorf("workload counts = %+v", summary)
 	}
@@ -206,7 +209,7 @@ func TestQueriesContainPrometheusColumns(t *testing.T) {
 	for _, column := range report.Queries[0].Columns {
 		columns[column.ColumnID] = column
 	}
-	for _, id := range []string{"P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09"} {
+	for _, id := range []string{"P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10"} {
 		if columns[id].ColumnID == "" {
 			t.Errorf("missing query for %s", id)
 		}
@@ -221,8 +224,8 @@ func TestQueriesContainPrometheusColumns(t *testing.T) {
 	if !strings.Contains(columns["P09"].Query, "OOMKilled") {
 		t.Errorf("P09 query = %q", columns["P09"].Query)
 	}
-	if columns["P02"].Note == "" || columns["P09"].Note == "" {
-		t.Errorf("suggestion/OOM notes missing: %#v", columns)
+	if columns["P02"].Note == "" || columns["P09"].Note == "" || columns["P10"].Note == "" {
+		t.Errorf("suggestion/OOM/severity notes missing: %#v", columns)
 	}
 }
 

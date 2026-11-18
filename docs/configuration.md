@@ -110,6 +110,7 @@ in the order below. `state.yaml` stores the visible IDs under `columns`.
 | `P07` | MEM_LIM_USE | hidden until Prometheus data exists |
 | `P08` | MEM_LIM_SUG | hidden until Prometheus data exists |
 | `P09` | OOM_AFFECTED | hidden until Prometheus data exists |
+| `P10` | SEVERITY | hidden until Prometheus data exists |
 
 Hidden columns are removed completely and are not searched by the filter.
 Sorting by a hidden column still works. Exports always contain every column.
@@ -200,6 +201,11 @@ resources:
     percentiles: { request: 90, limit: 99 }
     suggestion_buffer_percentage: { request: 0, limit: 10 }
     suggestion_minimum: { request: 32Mi, limit: 32Mi }
+  severity:
+    medium: { percent: 10 }
+    high:
+      percent: 50
+      minimum: { cpu: 50m, memory: 50Mi }
 ```
 
 A percentile of `0` disables that calculation and suggestion. A suggestion is
@@ -211,14 +217,53 @@ disable this behavior. Suggestion cells show the current value and the
 suggestion, for example `100m -> 150m`. `query_step` is `auto` or an explicit
 duration.
 
+Usage columns (`P01`, `P03`, `P05`, `P07`) show the percentile of that pod and
+container. Suggestions keep the owner-level algorithm: the highest sample
+across the workload's pods is used for every replica and container of the same
+name, so all replicas receive the same recommendation.
+
+The `P10` severity column grades CPU and memory limit suggestions. A suggestion
+is `MEDIUM` above `severity.medium.percent` and `HIGH` when it reaches both
+`severity.high.percent` and the matching `severity.high.minimum` quantity.
+Containers that Kubernetes or Prometheus observed as OOMKilled are always
+`HIGH`. Exports include the count of containers at each severity level.
+
 The commented default file, [`config/kubernova/prometheus.yaml`](../config/kubernova/prometheus.yaml),
 documents every PromQL query, the exporters it needs and its limitations.
 
 ## Exports
 
-`:export [json|md|all] [path]` (or `ctrl+e`) writes the complete report:
-every row of every namespace and every column, in the current sort order.
-Filters, namespace selection, hidden columns and replica collapse do not
-apply. Files are written atomically to `exports/` beside `state.yaml`, or to
-the given path. An export made from cached data is marked as cached. Exports
-never contain secrets, authentication values or URL credentials.
+`:export [json|md|all] [path]` (or `ctrl+e`) writes the report:
+every row of every namespace, in the configured sort order. Filters,
+namespace selection, hidden columns and replica collapse do not apply. Files
+are written atomically. An export made from cached data is marked as cached.
+Exports never contain secrets, authentication values or URL credentials.
+
+```yaml
+export:
+  path: clusters/<cluster>/<context>/exports/
+  filename: kubernova-<cluster>-<context>-YYMMDD-HHmm:ss
+  type: all
+  markdown_table_padded: true
+  columns: all
+  sort_column: namespace
+  sort_descending: false
+```
+
+- `path`: destination directory. Relative paths are resolved under
+  `$XDG_CONFIG_HOME/kubernova/`, so the default lands beside `state.yaml`.
+  `<cluster>` and `<context>` are sanitized and substituted. An absolute path
+  or a leading `~` writes elsewhere.
+- `filename`: template without an extension. Supports `<cluster>`,
+  `<context>`, `<timestamp>`, and the `YYMMDD-HHmm:ss` time pattern. The
+  selected type's extension is appended.
+- `type`: `json`, `md`, or `all`. `ctrl+e` and `:export` without a type use
+  this value.
+- `markdown_table_padded`: align Markdown table cells with spaces. Set to
+  `false` for compact `| value |` rows.
+- `columns`: `all`, or comma-separated column IDs or headers such as
+  `K02,K05,K08,P10`. Selected columns keep the order given.
+- `sort_column`: stable ID or header used for exported rows. The default
+  `namespace` is `K02`. Empty uses the current table sort. `sort_descending`
+  reverses it.
+

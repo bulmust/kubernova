@@ -242,23 +242,38 @@ func TestApplyPrometheusResults(t *testing.T) {
 	if updated[0].Prometheus == nil || updated[1].Prometheus == nil {
 		t.Fatal("matching Kubernetes rows were not updated")
 	}
-	if got := *updated[0].Prometheus.CPURequestPercentile; got != 2 {
-		t.Errorf("CPU request max = %v, want 2", got)
+	if got := *updated[0].Prometheus.CPURequestPercentile; got != 1 {
+		t.Errorf("CPU request usage = %v, want 1 (own pod, not the owner max)", got)
+	}
+	if got := *updated[1].Prometheus.CPURequestPercentile; got != 2 {
+		t.Errorf("second pod CPU request usage = %v, want 2", got)
 	}
 	if got := *updated[0].Prometheus.CPURequestSuggestion; got != 2.2 {
 		t.Errorf("CPU request suggestion = %v, want 2.2", got)
 	}
-	if got := *updated[0].Prometheus.CPULimitPercentile; got != 2 {
-		t.Errorf("equal CPU limit percentile = %v, want 2", got)
+	if got := *updated[0].Prometheus.CPULimitPercentile; got != 1 {
+		t.Errorf("equal CPU limit usage = %v, want 1", got)
 	}
-	if got := *updated[0].Prometheus.MemoryRequestPercentile; got != 128*1024*1024 {
-		t.Errorf("memory request max = %v", got)
+	if got := *updated[1].Prometheus.CPULimitPercentile; got != 2 {
+		t.Errorf("second pod CPU limit usage = %v, want 2", got)
+	}
+	if got := *updated[0].Prometheus.MemoryRequestPercentile; got != 64*1024*1024 {
+		t.Errorf("memory request usage = %v, want the first pod's value", got)
+	}
+	if got := *updated[1].Prometheus.MemoryRequestPercentile; got != 128*1024*1024 {
+		t.Errorf("second pod memory request usage = %v", got)
 	}
 	if got := *updated[0].Prometheus.MemoryLimitPercentile; got != 256*1024*1024 {
-		t.Errorf("memory limit max = %v", got)
+		t.Errorf("memory limit usage = %v", got)
+	}
+	if updated[1].Prometheus.MemoryLimitPercentile != nil {
+		t.Errorf("second pod memory limit usage = %v, want no series", *updated[1].Prometheus.MemoryLimitPercentile)
 	}
 	if got := *updated[0].Prometheus.MemoryLimitSuggestion; got != 256*1024*1024*1.1 {
 		t.Errorf("memory limit suggestion = %v", got)
+	}
+	if got := *updated[1].Prometheus.MemoryLimitSuggestion; got != 256*1024*1024*1.1 {
+		t.Errorf("shared memory limit suggestion = %v, want owner max", got)
 	}
 	if got := *updated[0].Prometheus.OOMKills; got != 1 {
 		t.Errorf("OOM observation = %v, want 1 (affected, not an event count)", got)
@@ -273,3 +288,50 @@ func TestApplyPrometheusResults(t *testing.T) {
 		t.Errorf("empty namespace container should be ignored")
 	}
 }
+
+func TestLimitSeverityThresholds(t *testing.T) {
+	containers := []model.Container{
+		{Namespace: "default", Pod: "high-1", Name: "app", Owners: "Deployment", OwnerName: "high", CPULim: "100m"},
+		{Namespace: "default", Pod: "medium-1", Name: "app", Owners: "Deployment", OwnerName: "medium", CPULim: "100m"},
+		{Namespace: "default", Pod: "ok-1", Name: "app", Owners: "Deployment", OwnerName: "ok", CPULim: "100m"},
+		{Namespace: "default", Pod: "oom-1", Name: "app", Owners: "Deployment", OwnerName: "oom", CPULim: "100m", OOM: "yes"},
+	}
+	resources := testResources()
+	resources.CPU.Percentiles = config.ResourcePercentiles{Limit: 90}
+	resources.CPU.SuggestionBufferPercentage = config.Percentages{}
+	resources.CPU.SuggestionMinimum = config.ResourceMinimum{}
+	resources.Memory.Enabled = false
+	plan := BuildQueryPlan(testPromConfig(), resources, containers)
+	results := QueryResults{
+		CPU: PrometheusResult{Result: []PrometheusSample{
+			{Metric: map[string]string{"namespace": "default", "pod": "high-1", "container": "app"}, Value: 0.2},
+			{Metric: map[string]string{"namespace": "default", "pod": "medium-1", "container": "app"}, Value: 0.12},
+			{Metric: map[string]string{"namespace": "default", "pod": "ok-1", "container": "app"}, Value: 0.105},
+			{Metric: map[string]string{"namespace": "default", "pod": "oom-1", "container": "app"}, Value: 0.105},
+		}},
+	}
+	updated := ApplyPrometheusResults(containers, plan, results, time.Unix(100, 0))
+	want := []string{model.SeverityHigh, model.SeverityMedium, model.SeverityOK, model.SeverityHigh}
+	for index, expected := range want {
+		if got := updated[index].Severity(); got != expected {
+			t.Errorf("container %d severity = %q, want %q", index, got, expected)
+		}
+	}
+}
+
+func TestSeverityUsesPerResourceMinimum(t *testing.T) {
+	medium := severityLevel("100m", float64Pointer(0.12), 10, 50, 0.05)
+	if medium != model.SeverityMedium {
+		t.Errorf("20%% change with 20m limit = %q, want MEDIUM", medium)
+	}
+	high := severityLevel("100m", float64Pointer(0.2), 10, 50, 0.05)
+	if high != model.SeverityHigh {
+		t.Errorf("100%% change of 100m = %q, want HIGH", high)
+	}
+	small := severityLevel("500m", float64Pointer(0.52), 10, 50, 0.05)
+	if small != model.SeverityOK {
+		t.Errorf("4%% change = %q, want OK", small)
+	}
+}
+
+func float64Pointer(value float64) *float64 { return &value }
